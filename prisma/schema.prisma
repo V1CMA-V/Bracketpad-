@@ -1,0 +1,310 @@
+// Prisma schema for Supabase Postgres
+// Connection URLs are configured in prisma.config.ts
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum UserRole {
+  club_admin
+  player
+  public
+}
+
+enum CourtSurface {
+  cristal
+  cesped
+  indoor
+}
+
+enum CompetitionType {
+  tournament
+  league
+}
+
+enum CompetitionStatus {
+  draft
+  open
+  ongoing
+  finished
+}
+
+enum Gender {
+  male
+  female
+  mixed
+  open
+}
+
+enum CategoryFormat {
+  groups
+  elimination
+  groups_then_elimination
+}
+
+enum ScoringType {
+  sets
+  games
+  points
+}
+
+enum PairStatus {
+  registered
+  confirmed
+  withdrawn
+}
+
+enum DominantHand {
+  right
+  left
+}
+
+enum PreferredPosition {
+  drive
+  reves
+}
+
+enum MatchRound {
+  group
+  round_of_16
+  quarterfinal
+  semifinal
+  final
+}
+
+enum MatchStatus {
+  scheduled
+  ongoing
+  finished
+  walkover
+}
+
+// ─────────────────────────────────────────
+// IDENTIDAD
+// ─────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  phone        String?
+  avatarUrl    String?  @map("avatar_url")
+  role         UserRole @default(player)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  clubs         Club[]
+  playerProfile Player[]
+
+  @@map("users")
+}
+
+model Club {
+  id          String   @id @default(uuid())
+  ownerUserId String   @map("owner_user_id")
+  name        String
+  slug        String   @unique
+  logoUrl     String?  @map("logo_url")
+  city        String?
+  address     String?
+  phone       String?
+  email       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  owner        User          @relation(fields: [ownerUserId], references: [id])
+  courts       Court[]
+  players      Player[]
+  competitions Competition[]
+
+  @@map("clubs")
+}
+
+model Court {
+  id      String       @id @default(uuid())
+  clubId  String       @map("club_id")
+  name    String
+  surface CourtSurface @default(cristal)
+  active  Boolean      @default(true)
+
+  club    Club    @relation(fields: [clubId], references: [id])
+  matches Match[]
+
+  @@map("courts")
+}
+
+model Player {
+  id                String             @id @default(uuid())
+  userId            String             @map("user_id")
+  clubId            String             @map("club_id")
+  alias             String?
+  dominantHand      DominantHand?      @map("dominant_hand")
+  preferredPosition PreferredPosition? @map("preferred_position")
+  rankingPoints     Float              @default(0) @map("ranking_points")
+  active            Boolean            @default(true)
+  joinedAt          DateTime           @default(now()) @map("joined_at")
+
+  user User @relation(fields: [userId], references: [id])
+  club Club @relation(fields: [clubId], references: [id])
+
+  pairsAsPlayer1 Pair[] @relation("Player1Pairs")
+  pairsAsPlayer2 Pair[] @relation("Player2Pairs")
+
+  @@unique([userId, clubId])
+  @@map("players")
+}
+
+// ─────────────────────────────────────────
+// COMPETICIÓN
+// ─────────────────────────────────────────
+
+model Competition {
+  id          String            @id @default(uuid())
+  clubId      String            @map("club_id")
+  name        String
+  slug        String            @unique
+  type        CompetitionType
+  status      CompetitionStatus @default(draft)
+  startDate   DateTime?         @map("start_date") @db.Date
+  endDate     DateTime?         @map("end_date") @db.Date
+  description String?
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  club       Club       @relation(fields: [clubId], references: [id])
+  categories Category[]
+
+  @@map("competitions")
+}
+
+model Category {
+  id                 String         @id @default(uuid())
+  competitionId      String         @map("competition_id")
+  name               String
+  gender             Gender         @default(open)
+  level              String?
+  format             CategoryFormat @default(groups_then_elimination)
+  groupSize          Int            @default(4) @map("group_size")
+  qualifiersPerGroup Int            @default(2) @map("qualifiers_per_group")
+  scoringType        ScoringType    @default(sets) @map("scoring_type")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  competition Competition @relation(fields: [competitionId], references: [id])
+  pairs       Pair[]
+  groups      Group[]
+  matches     Match[]
+
+  @@map("categories")
+}
+
+model Pair {
+  id           String     @id @default(uuid())
+  categoryId   String     @map("category_id")
+  player1Id    String     @map("player1_id")
+  player2Id    String     @map("player2_id")
+  name         String?
+  status       PairStatus @default(registered)
+  seed         Int?
+  registeredAt DateTime   @default(now()) @map("registered_at")
+
+  category Category @relation(fields: [categoryId], references: [id])
+  player1  Player   @relation("Player1Pairs", fields: [player1Id], references: [id])
+  player2  Player   @relation("Player2Pairs", fields: [player2Id], references: [id])
+
+  groupEntries   GroupPair[]
+  matchesAsPair1 Match[]     @relation("Pair1Matches")
+  matchesAsPair2 Match[]     @relation("Pair2Matches")
+  matchesWon     Match[]     @relation("WinnerPairMatches")
+
+  @@unique([categoryId, player1Id, player2Id])
+  @@map("pairs")
+}
+
+// ─────────────────────────────────────────
+// GRUPOS
+// ─────────────────────────────────────────
+
+model Group {
+  id         String @id @default(uuid())
+  categoryId String @map("category_id")
+  name       String
+  order      Int    @default(0)
+
+  category   Category    @relation(fields: [categoryId], references: [id])
+  groupPairs GroupPair[]
+  matches    Match[]
+
+  @@map("groups")
+}
+
+model GroupPair {
+  id       String @id @default(uuid())
+  groupId  String @map("group_id")
+  pairId   String @map("pair_id")
+  wins     Int    @default(0)
+  losses   Int    @default(0)
+  setsWon  Int    @default(0) @map("sets_won")
+  setsLost Int    @default(0) @map("sets_lost")
+  points   Int    @default(0)
+
+  group Group @relation(fields: [groupId], references: [id])
+  pair  Pair  @relation(fields: [pairId], references: [id])
+
+  @@unique([groupId, pairId])
+  @@map("group_pairs")
+}
+
+// ─────────────────────────────────────────
+// PARTIDOS Y SETS
+// ─────────────────────────────────────────
+
+model Match {
+  id           String      @id @default(uuid())
+  categoryId   String      @map("category_id")
+  groupId      String?     @map("group_id")
+  courtId      String?     @map("court_id")
+  pair1Id      String      @map("pair1_id")
+  pair2Id      String      @map("pair2_id")
+  winnerPairId String?     @map("winner_pair_id")
+  round        MatchRound
+  roundNumber  Int         @default(1) @map("round_number")
+  matchOrder   Int         @default(0) @map("match_order")
+  status       MatchStatus @default(scheduled)
+  scheduledAt  DateTime?   @map("scheduled_at")
+  startedAt    DateTime?   @map("started_at")
+  finishedAt   DateTime?   @map("finished_at")
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  group      Group?   @relation(fields: [groupId], references: [id])
+  court      Court?   @relation(fields: [courtId], references: [id])
+  pair1      Pair     @relation("Pair1Matches", fields: [pair1Id], references: [id])
+  pair2      Pair     @relation("Pair2Matches", fields: [pair2Id], references: [id])
+  winnerPair Pair?    @relation("WinnerPairMatches", fields: [winnerPairId], references: [id])
+
+  sets Set[]
+
+  @@map("matches")
+}
+
+model Set {
+  id            String @id @default(uuid())
+  matchId       String @map("match_id")
+  setNumber     Int    @map("set_number")
+  pair1Games    Int    @default(0) @map("pair1_games")
+  pair2Games    Int    @default(0) @map("pair2_games")
+  pair1Tiebreak Int?   @map("pair1_tiebreak")
+  pair2Tiebreak Int?   @map("pair2_tiebreak")
+
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@unique([matchId, setNumber])
+  @@map("sets")
+}

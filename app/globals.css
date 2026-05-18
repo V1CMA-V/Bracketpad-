@@ -1,0 +1,156 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-heading);
+  --font-serif: var(--font-heading);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-cream: var(--cream);
+  --color-ink: var(--ink);
+  --color-forest: var(--forest);
+  --color-terracotta: var(--terracotta);
+  --color-ochre: var(--ochre);
+  --color-lime: var(--lime);
+}
+
+:root {
+  /* Bandeja palette */
+  --cream: #f1ebde;
+  --ink: #1a1612;
+  --forest: #1f3a2e;
+  --terracotta: #b85a3c;
+  --ochre: #c89a4a;
+  --lime: #c7d96b;
+
+  --background: var(--cream);
+  --foreground: var(--ink);
+  --card: #f7f3e8;
+  --card-foreground: var(--ink);
+  --popover: #f7f3e8;
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--cream);
+  --secondary: var(--forest);
+  --secondary-foreground: var(--cream);
+  --muted: #e5dccb;
+  --muted-foreground: #6b6357;
+  --accent: var(--terracotta);
+  --accent-foreground: var(--cream);
+  --destructive: var(--terracotta);
+  --border: #d9d0bd;
+  --input: #d9d0bd;
+  --ring: var(--ochre);
+  --chart-1: var(--terracotta);
+  --chart-2: var(--forest);
+  --chart-3: var(--ochre);
+  --chart-4: var(--lime);
+  --chart-5: var(--ink);
+  --radius: 0.625rem;
+  --sidebar: #ece5d3;
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--cream);
+  --sidebar-accent: var(--terracotta);
+  --sidebar-accent-foreground: var(--cream);
+  --sidebar-border: #d9d0bd;
+  --sidebar-ring: var(--ochre);
+}
+
+.dark {
+  --background: var(--ink);
+  --foreground: var(--cream);
+  --card: #221d18;
+  --card-foreground: var(--cream);
+  --popover: #221d18;
+  --popover-foreground: var(--cream);
+  --primary: var(--cream);
+  --primary-foreground: var(--ink);
+  --secondary: var(--forest);
+  --secondary-foreground: var(--cream);
+  --muted: #2a2520;
+  --muted-foreground: #a89e8d;
+  --accent: var(--terracotta);
+  --accent-foreground: var(--cream);
+  --destructive: var(--terracotta);
+  --border: #ffffff1a;
+  --input: #ffffff26;
+  --ring: var(--ochre);
+  --chart-1: var(--terracotta);
+  --chart-2: var(--forest);
+  --chart-3: var(--ochre);
+  --chart-4: var(--lime);
+  --chart-5: var(--cream);
+  --sidebar: #221d18;
+  --sidebar-foreground: var(--cream);
+  --sidebar-primary: var(--terracotta);
+  --sidebar-primary-foreground: var(--cream);
+  --sidebar-accent: var(--forest);
+  --sidebar-accent-foreground: var(--cream);
+  --sidebar-border: #ffffff1a;
+  --sidebar-ring: var(--ochre);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+  code, kbd, samp, pre {
+    font-family: var(--font-mono);
+  }
+}

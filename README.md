@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BracketPad
 
-## Getting Started
+Plataforma editorial para clubes que organizan torneos de pádel. Inscripciones, cuadros, programación y resultados — en un solo gesto.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router, React 19, RSC)
+- **Tailwind CSS v4** + **shadcn/ui** (estilo `radix-maia`, base `olive`)
+- **Prisma 7** sobre **Supabase Postgres**
+- **TypeScript 5**, **pnpm**
+
+## Empezar
+
+Requisitos: Node.js 20+, pnpm y un archivo `.env` con las credenciales de Supabase (`DATABASE_URL` pooled en 6543 con `pgbouncer=true`, `DIRECT_URL` directo en 5432).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+pnpm dlx prisma generate
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `pnpm dev` — servidor de desarrollo
+- `pnpm build` — build de producción
+- `pnpm start` — sirve el build de producción
+- `pnpm lint` — ESLint (`next/core-web-vitals` + `next/typescript`)
 
-## Learn More
+## Base de datos
 
-To learn more about Next.js, take a look at the following resources:
+Prisma 7 resuelve las URLs desde `prisma.config.ts` (no desde `schema.prisma`).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `pnpm dlx prisma migrate dev --name <nombre>` — crear y aplicar migración
+- `pnpm dlx prisma db pull` — introspectar el esquema remoto
+- `pnpm dlx prisma generate` — regenerar el cliente
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+El cliente Prisma vive como singleton en `lib/prisma.ts`; impórtalo desde `@/lib/prisma` en lugar de instanciar `PrismaClient` en otros sitios.
 
-## Deploy on Vercel
+## Estructura
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `app/` — rutas del App Router (incluye `club/[slug]`)
+- `components/home/` — secciones de landing (Hero, Features, OnLive, TournamentTabs, FAQ, CTA…)
+- `components/layout/` — header y footer
+- `components/ui/` — primitivos de shadcn/ui
+- `prisma/schema.prisma` — esquema de datos
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Convenciones
+
+Consulta `CLAUDE.md` para detalles sobre arquitectura, alias (`@/*`), tokens de Tailwind en `app/globals.css` y configuración de Supabase/MCP.

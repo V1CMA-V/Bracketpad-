@@ -12,7 +12,7 @@ import { Results } from '@/components/tournament/results'
 export default async function TournamentPage({
   params,
 }: {
-  params: Promise<{ slug: string }>
+  params: Promise<{ clubSlug: string; slug: string }>
 }) {
   const { slug } = await params
   return (

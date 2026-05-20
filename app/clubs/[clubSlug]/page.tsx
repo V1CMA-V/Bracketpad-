@@ -8,14 +8,14 @@ import { Tournaments } from '@/components/club/tournaments'
 export default async function ClubPage({
   params,
 }: {
-  params: Promise<{ slug: string }>
+  params: Promise<{ clubSlug: string }>
 }) {
-  const { slug } = await params
+  const { clubSlug } = await params
   return (
     <div>
 
-      <Breadcrumb path={slug} />
-      <Hero club={slug} />
+      <Breadcrumb path={clubSlug} />
+      <Hero club={clubSlug} />
       <NumberClub />
       <Tournaments />
       <Installations />

@@ -1,5 +1,3 @@
-import { Footer } from '@/components/layout/footer'
-import { Header } from '@/components/layout/header'
 import { cn } from '@/lib/utils'
 import type { Metadata } from 'next'
 import { Geist, Instrument_Serif, JetBrains_Mono } from 'next/font/google'
@@ -48,11 +46,7 @@ export default function RootLayout({
         jetbrainsMono.variable,
       )}
     >
-      <body className="min-h-full flex flex-col ">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
-      </body>
+      <body className="min-h-full">{children}</body>
     </html>
   )
 }

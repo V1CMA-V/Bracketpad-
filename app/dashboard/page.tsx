@@ -1,5 +1,7 @@
+import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Plus } from 'lucide-react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
@@ -199,8 +201,21 @@ function pct(hour: number) {
 
 export default function DashboardResumenPage() {
   return (
-    <div className="mx-auto max-w-[1600px] px-8 py-10">
-      {/* ---- Saludo + métricas ---- */}
+    <>
+      <DashboardTopbar>
+        <Button variant="outline" className="h-9 rounded-md px-4 text-sm">
+          Exportar
+        </Button>
+        <Button asChild className="h-9 gap-1.5 rounded-md px-4 text-sm">
+          <Link href="/dashboard/torneos/nuevo">
+            <Plus className="size-4" strokeWidth={2} />
+            Nuevo torneo
+          </Link>
+        </Button>
+      </DashboardTopbar>
+
+      <div className="mx-auto max-w-[1600px] px-8 py-10">
+        {/* ---- Saludo + métricas ---- */}
       <section className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
@@ -468,6 +483,7 @@ export default function DashboardResumenPage() {
           </div>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   )
 }

@@ -194,8 +194,15 @@ function prizeValue(prize: string | null): number {
 /*  Subcomponentes                                                            */
 /* -------------------------------------------------------------------------- */
 
-const COLS =
-  'grid grid-cols-[52px_minmax(0,1.7fr)_136px_124px_minmax(0,1.25fr)_48px_84px_84px_28px] items-center gap-4'
+/**
+ * Plantilla de columnas de la tabla. Se aplica con `style` (en lugar de un
+ * `grid-cols-[…]` arbitrario) para evitar que el `minmax()` rompa la rejilla.
+ */
+const COLS = 'grid items-center gap-4'
+const colsGrid: React.CSSProperties = {
+  gridTemplateColumns:
+    '52px minmax(0, 1.7fr) 136px 124px minmax(0, 1.25fr) 48px 84px 84px 28px',
+}
 
 function StatusPill({ status }: { status: Status }) {
   const map = {
@@ -333,6 +340,7 @@ export function TournamentsTable() {
         <div className="min-w-[960px]">
           {/* Cabecera */}
           <div
+            style={colsGrid}
             className={cn(
               COLS,
               'border-b border-border px-3 pb-2.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground',
@@ -360,6 +368,7 @@ export function TournamentsTable() {
                 <li key={t.id}>
                   <Link
                     href={`/dashboard/torneos/${t.id.toLowerCase()}`}
+                    style={colsGrid}
                     className={cn(
                       COLS,
                       'group rounded-md px-3 py-4 transition-colors hover:bg-muted/50',

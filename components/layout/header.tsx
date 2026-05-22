@@ -5,7 +5,7 @@ import { Input } from '../ui/input'
 
 const links = [
   { label: 'Torneos', href: '/torneos', active: true },
-  { label: 'Clubes', href: '/clubes' },
+  { label: 'Clubes', href: '/clubs' },
   { label: 'Ranking', href: '/ranking' },
   { label: 'Calendario', href: '/calendario' },
   { label: 'Cómo funciona', href: '/como-funciona' },

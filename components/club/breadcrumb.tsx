@@ -16,12 +16,12 @@ export function Breadcrumb({
     <div className="bg-cream border-b border-border">
       <div className="flex items-center justify-between px-6 py-3 font-mono text-xs uppercase tracking-wider text-ink">
         <nav className="flex items-center gap-2">
-          <Link href="/clubes" className="text-muted-foreground hover:text-ink transition-colors">
+          <Link href="/clubs" className="text-muted-foreground hover:text-ink transition-colors">
             Clubes
           </Link>
           <span className="text-muted-foreground">/</span>
           <Link
-            href="/clubes"
+            href="/clubs"
             className="text-muted-foreground hover:text-ink transition-colors"
           >
             {region}

@@ -11,7 +11,31 @@ Plataforma editorial para clubes que organizan torneos de pádel. Inscripciones,
 
 ## Empezar
 
-Requisitos: Node.js 20+, pnpm y un archivo `.env` con las credenciales de Supabase (`DATABASE_URL` pooled en 6543 con `pgbouncer=true`, `DIRECT_URL` directo en 5432).
+Requisitos: Node.js 20+, pnpm y un archivo `.env` con las credenciales de Supabase.
+
+### Variables de entorno
+
+Copia la plantilla y completa tus credenciales:
+
+```bash
+cp .env.example .env
+```
+
+| Variable       | Uso                                                     |
+| -------------- | ------------------------------------------------------- |
+| `DATABASE_URL` | Runtime de la app (Prisma en Next.js) — pooler          |
+| `DIRECT_URL`   | CLI de Prisma (`migrate`, `db pull`) — conexión directa |
+
+Obtén las URLs en [Supabase Dashboard](https://supabase.com/dashboard/project/uxmpjmwcmtzcrvebspeh/settings/database) → **Project Settings → Database → Connection string**:
+
+- **DATABASE_URL** — pestaña _Connection pooling_ → modo _Transaction_ → URI
+- **DIRECT_URL** — pestaña _Connection string_ → URI
+
+Sustituye `[TU_PASSWORD]` por la contraseña de la base de datos. Si incluye caracteres especiales (`@`, `#`, `%`, etc.), codifícala en URL.
+
+El archivo `.env` está en `.gitignore`; `.env.example` es la plantilla versionada sin secretos.
+
+### Arrancar
 
 ```bash
 pnpm install

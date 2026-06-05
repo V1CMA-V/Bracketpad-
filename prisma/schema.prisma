@@ -10,20 +10,34 @@ datasource db {
   provider = "postgresql"
 }
 
+// ============ BETTER AUTH ============
 model User {
-  id            String    @id
+  id            String      @id
   name          String
   email         String
-  emailVerified Boolean   @default(false)
+  emailVerified Boolean     @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  accountType   AccountType @default(player) // rol global de plataforma
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   sessions      Session[]
   accounts      Account[]
+
+  memberships ClubMembership[]
+  player      Player?
 
   @@unique([email])
   @@map("user")
 }
+
+// Tipo de cuenta a nivel plataforma
+enum AccountType {
+  player // se inscribe a torneos/ligas, ve sus partidos (fase futura)
+  club_staff // opera uno o más clubs
+  super_admin // administración de la plataforma
+}
+
+// ... Session, Account, Verification igual que los tienes ...
 
 model Session {
   id        String   @id
@@ -71,4 +85,449 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// ============ NÚCLEO / TENANT ============
+model Club {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("America/Mexico_City")
+  // antes en settings JSON, ahora explícito:
+  email     String?
+  phone     String?
+  address   String?
+  city      String?
+  logoUrl   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships ClubMembership[]
+  courts      Court[]
+  players     Player[]
+  leagues     League[]
+  tournaments Tournament[]
+  matches     Match[]
+
+  @@map("club")
+}
+
+model ClubMembership {
+  clubId    String
+  userId    String
+  role      ClubRole
+  createdAt DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([clubId, userId])
+  @@index([userId])
+  @@map("club_membership")
+}
+
+// Rol DENTRO de un club concreto
+enum ClubRole {
+  owner // dueño, control total incl. facturación y miembros
+  admin // gestiona ligas, torneos, jugadores
+  staff // captura resultados, opera en cancha
+  viewer // solo lectura
+}
+
+model Court {
+  id        String       @id @default(uuid())
+  clubId    String
+  name      String
+  surface   CourtSurface @default(artificial_grass)
+  isIndoor  Boolean      @default(false)
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  club         Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  matches      Match[]
+  availability CourtAvailability[]
+
+  @@index([clubId])
+  @@map("court")
+}
+
+enum CourtSurface {
+  artificial_grass
+  concrete
+  synthetic
+  glass
+}
+
+// Horarios de disponibilidad por cancha (reemplaza un settings JSON de horarios)
+model CourtAvailability {
+  id        String @id @default(uuid())
+  courtId   String
+  dayOfWeek Int    @db.SmallInt // 0=domingo ... 6=sábado
+  openTime  String // formato "HH:MM"
+  closeTime String
+
+  court Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@unique([courtId, dayOfWeek])
+  @@map("court_availability")
+}
+
+// ============ JUGADORES ============
+model Player {
+  id           String     @id @default(uuid())
+  clubId       String
+  userId       String?    @unique
+  fullName     String
+  email        String?
+  phone        String?
+  gender       Gender?
+  birthDate    DateTime?  @db.Date
+  // nivel/categoría del jugador, antes candidato a JSON:
+  skillLevel   SkillLevel @default(unranked)
+  dominantHand Hand?
+  createdAt    DateTime   @default(now())
+
+  club                Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user                User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  leagueRegistrations LeagueRegistration[]
+  teamMemberships     TournamentTeamMember[]
+  matchSidePlayers    MatchSidePlayer[]
+
+  @@index([clubId])
+  @@map("player")
+}
+
+enum Gender {
+  M
+  F
+  X
+}
+
+enum SkillLevel {
+  unranked
+  first // 1ra fuerza
+  second
+  third
+  fourth
+  fifth
+  sixth
+}
+
+enum Hand {
+  left
+  right
+}
+
+// ============ LIGAS ============
+model League {
+  id        String       @id @default(uuid())
+  clubId    String
+  name      String
+  format    LeagueFormat
+  status    LeagueStatus @default(draft)
+  startDate DateTime?    @db.Date
+  endDate   DateTime?    @db.Date
+  createdAt DateTime     @default(now())
+
+  club          Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  scoringConfig LeagueScoringConfig?
+  rounds        LeagueRound[]
+  registrations LeagueRegistration[]
+  standings     LeagueStanding[]
+  matches       Match[]
+
+  @@index([clubId, status])
+  @@map("league")
+}
+
+enum LeagueFormat {
+  round_robin
+  divisions
+  ladder
+}
+
+enum LeagueStatus {
+  draft
+  active
+  finished
+  archived
+}
+
+// Reemplaza scoringRules JSON con campos concretos
+model LeagueScoringConfig {
+  leagueId       String             @id
+  pointsWin      Int                @default(3) // puntos por victoria
+  pointsLoss     Int                @default(0)
+  pointsDraw     Int                @default(1) // si aplica
+  pointsWalkover Int                @default(0) // para quien no se presenta
+  bestOfSets     Int                @default(3) @db.SmallInt // mejor de 3 / mejor de 1
+  goldenPoint    Boolean            @default(true) // punto de oro en deuce
+  tiebreakAt     Int                @default(6) @db.SmallInt // games para tie-break
+  // criterios de desempate, en orden de prioridad
+  tiebreaker1    StandingTiebreaker @default(head_to_head)
+  tiebreaker2    StandingTiebreaker @default(set_diff)
+  tiebreaker3    StandingTiebreaker @default(game_diff)
+
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@map("league_scoring_config")
+}
+
+enum StandingTiebreaker {
+  head_to_head
+  set_diff
+  game_diff
+  sets_won
+  games_won
+}
+
+model LeagueRound {
+  id            String    @id @default(uuid())
+  leagueId      String
+  roundNumber   Int
+  name          String?
+  scheduledDate DateTime? @db.Date
+
+  league  League  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  matches Match[]
+
+  @@unique([leagueId, roundNumber])
+  @@map("league_round")
+}
+
+model LeagueRegistration {
+  id        String             @id @default(uuid())
+  leagueId  String
+  playerId  String
+  division  String?
+  seed      Int?
+  status    RegistrationStatus @default(active)
+  createdAt DateTime           @default(now())
+
+  league   League          @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  player   Player          @relation(fields: [playerId], references: [id])
+  standing LeagueStanding?
+
+  @@unique([leagueId, playerId])
+  @@index([leagueId])
+  @@map("league_registration")
+}
+
+enum RegistrationStatus {
+  active
+  withdrawn
+}
+
+// ============ TORNEOS ============
+model Tournament {
+  id                   String           @id @default(uuid())
+  clubId               String
+  name                 String
+  status               TournamentStatus @default(draft)
+  startDate            DateTime?        @db.Date
+  endDate              DateTime?        @db.Date
+  // antes candidatos a settings JSON:
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+  location             String?
+  description          String?
+  createdAt            DateTime         @default(now())
+
+  club       Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  categories TournamentCategory[]
+
+  @@index([clubId, status])
+  @@map("tournament")
+}
+
+enum TournamentStatus {
+  draft
+  registration_open
+  in_progress
+  finished
+  archived
+}
+
+model TournamentCategory {
+  id           String         @id @default(uuid())
+  tournamentId String
+  clubId       String // denormalizado para filtros por tenant
+  name         String
+  gender       CategoryGender @default(mixed)
+  skillLevel   SkillLevel     @default(unranked)
+  drawType     DrawType
+  maxTeams     Int?
+  bestOfSets   Int            @default(3) @db.SmallInt
+  // tarifa, antes en settings JSON:
+  entryFee     Decimal?       @db.Decimal(10, 2)
+  currency     String         @default("MXN")
+
+  tournament Tournament       @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  teams      TournamentTeam[]
+  matches    Match[]
+
+  @@unique([tournamentId, name])
+  @@index([clubId])
+  @@map("tournament_category")
+}
+
+enum CategoryGender {
+  M
+  F
+  mixed
+}
+
+enum DrawType {
+  single_elim
+  double_elim
+  round_robin
+  groups_playoff
+}
+
+model TournamentTeam {
+  id         String     @id @default(uuid())
+  categoryId String
+  clubId     String // denormalizado para tenant
+  name       String?
+  seed       Int?
+  status     TeamStatus @default(registered)
+  createdAt  DateTime   @default(now())
+
+  category TournamentCategory     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  members  TournamentTeamMember[]
+  sides    MatchSide[]
+
+  @@index([categoryId])
+  @@index([clubId])
+  @@map("tournament_team")
+}
+
+enum TeamStatus {
+  registered
+  confirmed
+  withdrawn
+}
+
+model TournamentTeamMember {
+  teamId   String
+  playerId String
+
+  team   TournamentTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player Player         @relation(fields: [playerId], references: [id])
+
+  @@id([teamId, playerId])
+  @@map("tournament_team_member")
+}
+
+// ============ PARTIDOS ============
+model Match {
+  id          String       @id @default(uuid())
+  clubId      String
+  contextType MatchContext
+
+  leagueId      String?
+  leagueRoundId String?
+
+  categoryId   String?
+  bracketRound String?
+
+  courtId     String?
+  scheduledAt DateTime?
+  status      MatchStatus @default(scheduled)
+  winnerSide  Side?
+  createdAt   DateTime    @default(now())
+
+  club        Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  league      League?             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  leagueRound LeagueRound?        @relation(fields: [leagueRoundId], references: [id], onDelete: SetNull)
+  category    TournamentCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  court       Court?              @relation(fields: [courtId], references: [id], onDelete: SetNull)
+  sides       MatchSide[]
+  sets        MatchSet[]
+
+  @@index([leagueId])
+  @@index([categoryId])
+  @@index([clubId, scheduledAt])
+  @@map("match")
+}
+
+enum MatchContext {
+  league
+  tournament
+}
+
+enum MatchStatus {
+  scheduled
+  in_progress
+  finished
+  walkover
+  cancelled
+}
+
+enum Side {
+  A
+  B
+}
+
+model MatchSide {
+  id      String  @id @default(uuid())
+  matchId String
+  side    Side
+  teamId  String?
+
+  match   Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team    TournamentTeam?   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  players MatchSidePlayer[]
+
+  @@unique([matchId, side])
+  @@map("match_side")
+}
+
+model MatchSidePlayer {
+  matchSideId String
+  playerId    String
+
+  matchSide MatchSide @relation(fields: [matchSideId], references: [id], onDelete: Cascade)
+  player    Player    @relation(fields: [playerId], references: [id])
+
+  @@id([matchSideId, playerId])
+  @@map("match_side_player")
+}
+
+model MatchSet {
+  matchId   String
+  setNumber Int    @db.SmallInt
+  gamesA    Int    @db.SmallInt
+  gamesB    Int    @db.SmallInt
+  tiebreakA Int?   @db.SmallInt
+  tiebreakB Int?   @db.SmallInt
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@id([matchId, setNumber])
+  @@map("match_set")
+}
+
+// ============ RANKING (precalculado) ============
+model LeagueStanding {
+  leagueId       String
+  registrationId String   @unique
+  division       String?
+  matchesPlayed  Int      @default(0)
+  wins           Int      @default(0)
+  losses         Int      @default(0)
+  setsFor        Int      @default(0)
+  setsAgainst    Int      @default(0)
+  gamesFor       Int      @default(0)
+  gamesAgainst   Int      @default(0)
+  points         Int      @default(0)
+  updatedAt      DateTime @updatedAt
+
+  league       League             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  registration LeagueRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@id([leagueId, registrationId])
+  @@index([leagueId, division, points])
+  @@map("league_standing")
 }

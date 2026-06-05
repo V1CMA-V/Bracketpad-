@@ -1,12 +1,13 @@
 'use client'
 
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react'
-import { Clock, Plus, Save, Trash2, Wand2 } from 'lucide-react'
+import { Clock, FlagTriangleRight, Plus, Save, Trash2, Wand2 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   captureMatchResult,
+  closeRoundAndAdvance,
   createMatch,
   deleteMatch,
   generateGroupsFromStandings,
@@ -581,7 +582,7 @@ function GenerateGroupsButton({ roundId }: { roundId: string }) {
             Autogenerar partidos por clasificación
           </p>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            Grupos de 4 · grupo 1 = mejores de la liga
+            Grupos de 4 · 3 sets rotativos · grupo 1 = mejores de la liga
           </p>
         </div>
         <Button
@@ -596,6 +597,48 @@ function GenerateGroupsButton({ roundId }: { roundId: string }) {
       </div>
       {state.error && (
         <p className="mt-2 text-xs text-destructive">{state.error}</p>
+      )}
+    </form>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cerrar jornada (ascenso/descenso → genera la siguiente)                   */
+/* -------------------------------------------------------------------------- */
+
+function CloseRoundButton({ roundId }: { roundId: string }) {
+  const boundAction = closeRoundAndAdvance.bind(null, roundId)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+
+  return (
+    <form
+      action={formAction}
+      className="rounded-xl border border-dashed border-border bg-card/50 p-4"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-foreground">Cerrar jornada</p>
+          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            Calcula ascensos y descensos · genera la jornada siguiente
+          </p>
+        </div>
+        <Button
+          type="submit"
+          variant="outline"
+          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
+          disabled={pending}
+        >
+          <FlagTriangleRight className="size-4" strokeWidth={2} />
+          {pending ? 'Cerrando…' : 'Cerrar y generar siguiente'}
+        </Button>
+      </div>
+      {state.error && (
+        <p className="mt-2 text-xs text-destructive">{state.error}</p>
+      )}
+      {state.success && (
+        <p className="mt-2 text-xs text-forest">
+          Jornada cerrada. Se generó la jornada siguiente con los nuevos grupos.
+        </p>
       )}
     </form>
   )
@@ -648,16 +691,19 @@ export function RoundMatches({
           </p>
         </div>
       ) : (
-        <ul className="space-y-3">
-          {matches.map((match) => (
-            <MatchRow
-              key={match.id}
-              match={match}
-              bestOfSets={bestOfSets}
-              courts={courts}
-            />
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-3">
+            {matches.map((match) => (
+              <MatchRow
+                key={match.id}
+                match={match}
+                bestOfSets={bestOfSets}
+                courts={courts}
+              />
+            ))}
+          </ul>
+          <CloseRoundButton roundId={roundId} />
+        </>
       )}
     </section>
   )

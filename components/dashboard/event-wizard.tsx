@@ -31,6 +31,7 @@ type EventData = {
   description: string
   // Liga
   format: 'round_robin' | 'divisions' | 'ladder'
+  playKind: 'individual' | 'pairs'
   bestOfSets: number
 }
 
@@ -42,6 +43,7 @@ const initialData: EventData = {
   location: '',
   description: '',
   format: 'round_robin',
+  playKind: 'individual',
   bestOfSets: 3,
 }
 
@@ -408,10 +410,52 @@ const ligaFormats = [
   },
 ]
 
+const ligaPlayKinds = [
+  {
+    value: 'individual' as const,
+    title: 'Individual',
+    desc: 'Jugadores sueltos. Cada jornada se forman grupos de 4 con parejas rotativas.',
+  },
+  {
+    value: 'pairs' as const,
+    title: 'Parejas',
+    desc: 'Parejas fijas inscritas que compiten juntas toda la temporada.',
+  },
+]
+
 function StepFormato({ data, update }: StepProps) {
   return (
     <div className="space-y-8">
-      <StepSection num="3.1" title="Sistema de competición">
+      <StepSection num="3.1" title="Modalidad">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {ligaPlayKinds.map((k) => {
+            const active = data.playKind === k.value
+            return (
+              <button
+                key={k.value}
+                type="button"
+                onClick={() => update({ playKind: k.value })}
+                className={cn(
+                  'relative flex flex-col gap-2 rounded-xl border p-5 text-left transition-colors',
+                  active
+                    ? 'border-foreground bg-card'
+                    : 'border-border hover:border-foreground/30',
+                )}
+              >
+                {active && (
+                  <CheckCircle2 className="absolute right-4 top-4 size-4 text-forest" />
+                )}
+                <span className="text-sm text-foreground">{k.title}</span>
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  {k.desc}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </StepSection>
+
+      <StepSection num="3.2" title="Sistema de competición">
         <div className="grid gap-4 sm:grid-cols-3">
           {ligaFormats.map((f) => {
             const active = data.format === f.value
@@ -440,7 +484,7 @@ function StepFormato({ data, update }: StepProps) {
         </div>
       </StepSection>
 
-      <StepSection num="3.2" title="Sets y clasificación">
+      <StepSection num="3.3" title="Sets y clasificación">
         <div className="grid gap-4 sm:grid-cols-2">
           <NumberField
             label="Sets a ganar (mejor de)"
@@ -482,6 +526,11 @@ function StepRevisar({ data }: StepProps) {
           { label: 'Tipo', value: 'Liga' },
           { label: 'Nombre', value: data.name || 'Sin definir' },
           { label: 'Fechas', value: dateRange },
+          {
+            label: 'Modalidad',
+            value:
+              ligaPlayKinds.find((k) => k.value === data.playKind)?.title ?? '—',
+          },
           {
             label: 'Formato',
             value:
@@ -641,6 +690,7 @@ export function EventWizard() {
               startDate: data.startDate || undefined,
               endDate: data.endDate || undefined,
               format: data.format,
+              playKind: data.playKind,
               bestOfSets: data.bestOfSets,
             }
           : {

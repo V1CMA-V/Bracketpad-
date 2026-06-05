@@ -221,14 +221,17 @@ enum Hand {
 
 // ============ LIGAS ============
 model League {
-  id        String       @id @default(uuid())
+  id        String         @id @default(uuid())
   clubId    String
   name      String
   format    LeagueFormat
-  status    LeagueStatus @default(draft)
-  startDate DateTime?    @db.Date
-  endDate   DateTime?    @db.Date
-  createdAt DateTime     @default(now())
+  // individual: jugadores sueltos con parejas rotativas en grupos de 4.
+  // pairs: parejas fijas inscritas (fase futura).
+  playKind  LeaguePlayKind @default(individual)
+  status    LeagueStatus   @default(draft)
+  startDate DateTime?      @db.Date
+  endDate   DateTime?      @db.Date
+  createdAt DateTime       @default(now())
 
   club          Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
   scoringConfig LeagueScoringConfig?
@@ -245,6 +248,11 @@ enum LeagueFormat {
   round_robin
   divisions
   ladder
+}
+
+enum LeaguePlayKind {
+  individual // jugadores sueltos, parejas rotativas en grupos de 4
+  pairs // parejas fijas inscritas
 }
 
 enum LeagueStatus {
@@ -286,8 +294,9 @@ model LeagueRound {
   name          String?
   scheduledDate DateTime? @db.Date
 
-  league  League  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  matches Match[]
+  league     League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  matches    Match[]
+  groupSlots LeagueGroupSlot[]
 
   @@unique([leagueId, roundNumber])
   @@map("league_round")
@@ -302,9 +311,10 @@ model LeagueRegistration {
   status    RegistrationStatus @default(active)
   createdAt DateTime           @default(now())
 
-  league   League          @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  player   Player          @relation(fields: [playerId], references: [id])
-  standing LeagueStanding?
+  league     League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  player     Player            @relation(fields: [playerId], references: [id])
+  standing   LeagueStanding?
+  groupSlots LeagueGroupSlot[]
 
   @@unique([leagueId, playerId])
   @@index([leagueId])
@@ -433,6 +443,10 @@ model Match {
   // inferiores. Ordena los partidos dentro de una jornada.
   groupNumber Int? @db.SmallInt
 
+  // En ligas individuales: orden del set dentro del grupo (1..3) con parejas
+  // rotativas. Null en el resto de contextos.
+  intraGroupOrder Int? @db.SmallInt
+
   courtId     String?
   scheduledAt DateTime?
   status      MatchStatus @default(scheduled)
@@ -531,4 +545,31 @@ model LeagueStanding {
   @@id([leagueId, registrationId])
   @@index([leagueId, division, setsFor])
   @@map("league_standing")
+}
+
+// Pertenencia a grupo de un jugador EN una jornada (formato individual).
+// Hace explícito el grupo de cada jornada y registra el resultado del grupo
+// (sets ganados, posición y movimiento) para generar la jornada siguiente.
+model LeagueGroupSlot {
+  id             String         @id @default(uuid())
+  roundId        String
+  groupNumber    Int            @db.SmallInt // 1 = grupo más alto
+  registrationId String
+  // Se llenan al cerrar la jornada:
+  setsWon        Int?           @db.SmallInt
+  rankInGroup    Int?           @db.SmallInt // 1..4
+  movement       GroupMovement?
+
+  round        LeagueRound        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  registration LeagueRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, registrationId])
+  @@index([roundId, groupNumber])
+  @@map("league_group_slot")
+}
+
+enum GroupMovement {
+  up // sube de grupo (ganador)
+  down // baja de grupo (último)
+  stay // se mantiene
 }

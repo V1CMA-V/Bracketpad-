@@ -34,6 +34,9 @@ export const createEventSchema = z.discriminatedUnion('type', [
     format: z.enum(['round_robin', 'divisions', 'ladder'], {
       error: 'Elige un formato de liga.',
     }),
+    playKind: z.enum(['individual', 'pairs'], {
+      error: 'Elige si la liga es individual o por parejas.',
+    }),
     bestOfSets: z.coerce
       .number()
       .int()

@@ -112,12 +112,90 @@ export async function createMatch(
 /*  Autogenerar grupos desde la clasificación                                 */
 /* -------------------------------------------------------------------------- */
 
-/** Empareja un grupo (en orden de ranking) en dos lados equilibrados. */
-function pairGroup(g: string[]): { a: string[]; b: string[] } {
-  // 1º+4º vs 2º+3º para equilibrar; parciales reparten lo que haya.
-  if (g.length >= 4) return { a: [g[0], g[3]], b: [g[1], g[2]] }
-  if (g.length === 3) return { a: [g[0], g[2]], b: [g[1]] }
-  return { a: [g[0]], b: [g[1]] } // length 2
+/**
+ * Las 3 rotaciones de un grupo de 4 (formato individual). Cada jugador hace
+ * pareja una vez con cada uno de los otros tres; cada enfrentamiento es a 1 set:
+ * 1·2 vs 3·4, 1·3 vs 2·4, 1·4 vs 2·3.
+ */
+function rotatingPairings(
+  p: string[],
+): { a: [string, string]; b: [string, string] }[] {
+  return [
+    { a: [p[0], p[1]], b: [p[2], p[3]] },
+    { a: [p[0], p[2]], b: [p[1], p[3]] },
+    { a: [p[0], p[3]], b: [p[1], p[2]] },
+  ]
+}
+
+/**
+ * Persiste una lista de grupos ya ordenados (grupo 1 = más alto; dentro de cada
+ * grupo los jugadores en orden de siembra) creando los 3 partidos rotativos y
+ * sus `LeagueGroupSlot`. Agrupa en 4 `createMany` (match/side/player/slot) para
+ * no agotar la transacción sobre el pooler de Supabase.
+ *
+ * Reutilizable: la primera jornada lo llama con grupos por clasificación; al
+ * cerrar una jornada se llamará con los grupos resultantes del ascenso/descenso.
+ *
+ * No se exporta a propósito: en un módulo 'use server' todo export es un
+ * endpoint invocable desde el cliente, y esta función no valida propiedad.
+ */
+async function persistGroups(
+  clubId: string,
+  leagueId: string,
+  roundId: string,
+  groups: { registrationId: string; playerId: string }[][],
+) {
+  const matchesData: Prisma.MatchCreateManyInput[] = []
+  const sidesData: Prisma.MatchSideCreateManyInput[] = []
+  const playersData: Prisma.MatchSidePlayerCreateManyInput[] = []
+  const slotsData: Prisma.LeagueGroupSlotCreateManyInput[] = []
+
+  groups.forEach((group, gi) => {
+    const groupNumber = gi + 1
+
+    for (const member of group) {
+      slotsData.push({
+        roundId,
+        groupNumber,
+        registrationId: member.registrationId,
+      })
+    }
+
+    const playerIds = group.map((m) => m.playerId)
+    rotatingPairings(playerIds).forEach((pairing, pi) => {
+      const matchId = randomUUID()
+      matchesData.push({
+        id: matchId,
+        clubId,
+        contextType: 'league',
+        leagueId,
+        leagueRoundId: roundId,
+        groupNumber,
+        intraGroupOrder: pi + 1,
+        status: 'scheduled',
+      })
+      for (const { side, ids } of [
+        { side: 'A' as const, ids: pairing.a },
+        { side: 'B' as const, ids: pairing.b },
+      ]) {
+        const sideId = randomUUID()
+        sidesData.push({ id: sideId, matchId, side })
+        for (const playerId of ids) {
+          playersData.push({ matchSideId: sideId, playerId })
+        }
+      }
+    })
+  })
+
+  await prisma.$transaction(
+    [
+      prisma.match.createMany({ data: matchesData }),
+      prisma.matchSide.createMany({ data: sidesData }),
+      prisma.matchSidePlayer.createMany({ data: playersData }),
+      prisma.leagueGroupSlot.createMany({ data: slotsData }),
+    ],
+    { timeout: 15000 },
+  )
 }
 
 // `useActionState` invoca la acción con (prevState, formData); aquí no se
@@ -135,6 +213,7 @@ export async function generateGroupsFromStandings(
       leagueId: true,
       league: {
         select: {
+          playKind: true,
           scoringConfig: {
             select: {
               tiebreaker1: true,
@@ -148,6 +227,14 @@ export async function generateGroupsFromStandings(
     },
   })
   if (!round) return { error: 'Jornada no encontrada.' }
+
+  if (round.league.playKind !== 'individual') {
+    return {
+      error:
+        'La autogeneración de grupos solo está disponible en ligas individuales.',
+    }
+  }
+
   if (round._count.matches > 0) {
     return {
       error:
@@ -161,6 +248,7 @@ export async function generateGroupsFromStandings(
     where: { leagueId: round.leagueId, status: 'active' },
     orderBy: [{ seed: 'asc' }, { player: { fullName: 'asc' } }],
     select: {
+      id: true,
       player: { select: { id: true } },
       standing: {
         select: {
@@ -175,9 +263,10 @@ export async function generateGroupsFromStandings(
     },
   })
 
-  if (regs.length < 2) {
+  // El formato individual exige grupos de 4 exactos.
+  if (regs.length < 4 || regs.length % 4 !== 0) {
     return {
-      error: 'Necesitas al menos 2 jugadores activos para generar grupos.',
+      error: `El formato individual requiere grupos de 4: el número de jugadores activos debe ser múltiplo de 4 (actualmente ${regs.length}).`,
     }
   }
 
@@ -196,62 +285,22 @@ export async function generateGroupsFromStandings(
   }
 
   // Orden por clasificación (mejor → peor), mismo criterio que la tabla.
-  const playerIds = regs
-    .map((r) => ({ playerId: r.player.id, s: r.standing ?? zero }))
+  const ordered = regs
+    .map((r) => ({
+      registrationId: r.id,
+      playerId: r.player.id,
+      s: r.standing ?? zero,
+    }))
     .sort((a, b) => compareStandings(a.s, b.s, tiebreakers))
-    .map((r) => r.playerId)
+    .map(({ registrationId, playerId }) => ({ registrationId, playerId }))
 
   // Grupos de 4 en orden de ranking: grupo 1 = mejores.
-  const groups: string[][] = []
-  for (let i = 0; i < playerIds.length; i += 4) {
-    groups.push(playerIds.slice(i, i + 4))
+  const groups: { registrationId: string; playerId: string }[][] = []
+  for (let i = 0; i < ordered.length; i += 4) {
+    groups.push(ordered.slice(i, i + 4))
   }
 
-  const formable = groups.filter((g) => g.length >= 2) // un suelto descansa
-  if (formable.length === 0) {
-    return { error: 'No hay suficientes jugadores para formar un grupo.' }
-  }
-
-  // Pre-generamos los UUID y agrupamos en 3 `createMany` (3 viajes a la BD) en
-  // lugar de decenas de inserts anidados: así no se agota el tiempo de la
-  // transacción sobre el pooler de Supabase.
-  const matchesData: Prisma.MatchCreateManyInput[] = []
-  const sidesData: Prisma.MatchSideCreateManyInput[] = []
-  const playersData: Prisma.MatchSidePlayerCreateManyInput[] = []
-
-  formable.forEach((g, idx) => {
-    const matchId = randomUUID()
-    matchesData.push({
-      id: matchId,
-      clubId: club.id,
-      contextType: 'league',
-      leagueId: round.leagueId,
-      leagueRoundId: round.id,
-      groupNumber: idx + 1,
-      status: 'scheduled',
-    })
-
-    const { a, b } = pairGroup(g)
-    for (const { side, ids } of [
-      { side: 'A' as const, ids: a },
-      { side: 'B' as const, ids: b },
-    ]) {
-      const sideId = randomUUID()
-      sidesData.push({ id: sideId, matchId, side })
-      for (const playerId of ids) {
-        playersData.push({ matchSideId: sideId, playerId })
-      }
-    }
-  })
-
-  await prisma.$transaction(
-    [
-      prisma.match.createMany({ data: matchesData }),
-      prisma.matchSide.createMany({ data: sidesData }),
-      prisma.matchSidePlayer.createMany({ data: playersData }),
-    ],
-    { timeout: 15000 },
-  )
+  await persistGroups(club.id, round.leagueId, round.id, groups)
 
   revalidateRound(round.leagueId, round.id)
   return { success: true }
@@ -413,4 +462,305 @@ export async function deleteMatch(matchId: string) {
     await recomputeStandings(match.leagueId)
   }
   if (match.leagueId) revalidateRound(match.leagueId, match.leagueRoundId)
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cerrar jornada → ascenso/descenso → generar la siguiente                  */
+/* -------------------------------------------------------------------------- */
+
+/** Resultado de un jugador dentro de su grupo en una jornada. */
+type GroupAcc = {
+  registrationId: string
+  playerId: string
+  wins: number
+  losses: number
+  setsFor: number
+  setsAgainst: number
+  gamesFor: number
+  gamesAgainst: number
+}
+
+export async function closeRoundAndAdvance(
+  roundId: string,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: {
+      id: true,
+      leagueId: true,
+      roundNumber: true,
+      league: {
+        select: {
+          playKind: true,
+          scoringConfig: {
+            select: {
+              tiebreaker1: true,
+              tiebreaker2: true,
+              tiebreaker3: true,
+            },
+          },
+        },
+      },
+    },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round.league.playKind !== 'individual') {
+    return { error: 'El ascenso/descenso solo aplica a ligas individuales.' }
+  }
+
+  // Grupos generados para esta jornada.
+  const slots = await prisma.leagueGroupSlot.findMany({
+    where: { roundId },
+    select: {
+      registrationId: true,
+      groupNumber: true,
+      registration: { select: { playerId: true } },
+    },
+  })
+  if (slots.length === 0) {
+    return {
+      error:
+        'Esta jornada no tiene grupos generados. Usa «Generar grupos» antes de cerrarla.',
+    }
+  }
+
+  // Todos los partidos deben estar finalizados.
+  const matches = await prisma.match.findMany({
+    where: { leagueRoundId: roundId },
+    select: {
+      status: true,
+      winnerSide: true,
+      sides: {
+        select: { side: true, players: { select: { playerId: true } } },
+      },
+      sets: { select: { gamesA: true, gamesB: true } },
+    },
+  })
+  if (matches.length === 0) return { error: 'La jornada no tiene partidos.' }
+  const pending = matches.filter((m) => m.status !== 'finished').length
+  if (pending > 0) {
+    return {
+      error: `Faltan ${pending} partido(s) por finalizar antes de cerrar la jornada.`,
+    }
+  }
+
+  // La jornada siguiente debe estar vacía para poder regenerarla.
+  const nextRoundNumber = round.roundNumber + 1
+  const existingNext = await prisma.leagueRound.findUnique({
+    where: {
+      leagueId_roundNumber: {
+        leagueId: round.leagueId,
+        roundNumber: nextRoundNumber,
+      },
+    },
+    select: { id: true, _count: { select: { matches: true } } },
+  })
+  if (existingNext && existingNext._count.matches > 0) {
+    return {
+      error:
+        'La jornada siguiente ya tiene partidos. Elimínalos antes de cerrar esta jornada.',
+    }
+  }
+
+  // Acumula el resultado de cada jugador (solo juega en su grupo esta jornada).
+  const acc = new Map<string, GroupAcc>()
+  for (const s of slots) {
+    acc.set(s.registration.playerId, {
+      registrationId: s.registrationId,
+      playerId: s.registration.playerId,
+      wins: 0,
+      losses: 0,
+      setsFor: 0,
+      setsAgainst: 0,
+      gamesFor: 0,
+      gamesAgainst: 0,
+    })
+  }
+
+  for (const m of matches) {
+    const sideA = m.sides.find((x) => x.side === 'A')
+    const sideB = m.sides.find((x) => x.side === 'B')
+    if (!sideA || !sideB) continue
+    let setsA = 0
+    let setsB = 0
+    let gamesA = 0
+    let gamesB = 0
+    for (const set of m.sets) {
+      gamesA += set.gamesA
+      gamesB += set.gamesB
+      if (set.gamesA > set.gamesB) setsA += 1
+      else if (set.gamesB > set.gamesA) setsB += 1
+    }
+    const apply = (
+      players: { playerId: string }[],
+      ownSets: number,
+      oppSets: number,
+      ownGames: number,
+      oppGames: number,
+      won: boolean,
+    ) => {
+      for (const p of players) {
+        const a = acc.get(p.playerId)
+        if (!a) continue
+        a.setsFor += ownSets
+        a.setsAgainst += oppSets
+        a.gamesFor += ownGames
+        a.gamesAgainst += oppGames
+        if (won) a.wins += 1
+        else a.losses += 1
+      }
+    }
+    apply(sideA.players, setsA, setsB, gamesA, gamesB, m.winnerSide === 'A')
+    apply(sideB.players, setsB, setsA, gamesB, gamesA, m.winnerSide === 'B')
+  }
+
+  const cfg = round.league.scoringConfig
+  const tiebreakers = cfg
+    ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
+    : ['set_diff', 'sets_won', 'game_diff']
+
+  // Agrupa por grupo y comprueba que cada grupo tenga exactamente 4.
+  const byGroup = new Map<number, GroupAcc[]>()
+  for (const s of slots) {
+    const a = acc.get(s.registration.playerId)
+    if (!a) continue
+    const list = byGroup.get(s.groupNumber) ?? []
+    list.push(a)
+    byGroup.set(s.groupNumber, list)
+  }
+  for (const [g, members] of byGroup) {
+    if (members.length !== 4) {
+      return {
+        error: `El grupo ${g} no tiene 4 jugadores. El ascenso/descenso requiere grupos de 4.`,
+      }
+    }
+  }
+  const maxGroup = Math.max(...slots.map((s) => s.groupNumber))
+
+  // Por grupo: rankea por sets ganados, fija movimiento y nuevo grupo.
+  type NextMember = {
+    registrationId: string
+    playerId: string
+    newGroup: number
+  }
+  const slotUpdates: {
+    registrationId: string
+    setsWon: number
+    rankInGroup: number
+    movement: 'up' | 'down' | 'stay'
+  }[] = []
+  const nextMembers: NextMember[] = []
+
+  for (const [groupNumber, members] of byGroup) {
+    members.sort((x, y) => compareStandings(x, y, tiebreakers))
+    members.forEach((mem, i) => {
+      const rank = i + 1
+      let movement: 'up' | 'down' | 'stay' = 'stay'
+      if (rank === 1 && groupNumber > 1) movement = 'up'
+      else if (rank === members.length && groupNumber < maxGroup)
+        movement = 'down'
+      const newGroup =
+        movement === 'up'
+          ? groupNumber - 1
+          : movement === 'down'
+            ? groupNumber + 1
+            : groupNumber
+      slotUpdates.push({
+        registrationId: mem.registrationId,
+        setsWon: mem.setsFor,
+        rankInGroup: rank,
+        movement,
+      })
+      nextMembers.push({
+        registrationId: mem.registrationId,
+        playerId: mem.playerId,
+        newGroup,
+      })
+    })
+  }
+
+  // Orden dentro de cada nuevo grupo: por clasificación acumulada (siembra).
+  const standings = await prisma.leagueStanding.findMany({
+    where: { leagueId: round.leagueId },
+    select: {
+      registrationId: true,
+      wins: true,
+      losses: true,
+      setsFor: true,
+      setsAgainst: true,
+      gamesFor: true,
+      gamesAgainst: true,
+    },
+  })
+  const standMap = new Map(standings.map((s) => [s.registrationId, s]))
+  const zero = {
+    wins: 0,
+    losses: 0,
+    setsFor: 0,
+    setsAgainst: 0,
+    gamesFor: 0,
+    gamesAgainst: 0,
+  }
+
+  const nextByGroup = new Map<number, NextMember[]>()
+  for (const nm of nextMembers) {
+    const list = nextByGroup.get(nm.newGroup) ?? []
+    list.push(nm)
+    nextByGroup.set(nm.newGroup, list)
+  }
+  const nextGroups: { registrationId: string; playerId: string }[][] = [
+    ...nextByGroup.keys(),
+  ]
+    .sort((a, b) => a - b)
+    .map((g) =>
+      nextByGroup
+        .get(g)!
+        .sort((x, y) =>
+          compareStandings(
+            standMap.get(x.registrationId) ?? zero,
+            standMap.get(y.registrationId) ?? zero,
+            tiebreakers,
+          ),
+        )
+        .map((m) => ({ registrationId: m.registrationId, playerId: m.playerId })),
+    )
+
+  // 1) Guarda el resultado de los slots de ESTA jornada (sets, rank, movimiento).
+  await prisma.$transaction(
+    slotUpdates.map((u) =>
+      prisma.leagueGroupSlot.update({
+        where: {
+          roundId_registrationId: { roundId, registrationId: u.registrationId },
+        },
+        data: {
+          setsWon: u.setsWon,
+          rankInGroup: u.rankInGroup,
+          movement: u.movement,
+        },
+      }),
+    ),
+  )
+
+  // 2) Crea o reutiliza (si está vacía) la jornada siguiente y genera sus grupos.
+  const nextRoundId =
+    existingNext?.id ??
+    (
+      await prisma.leagueRound.create({
+        data: { leagueId: round.leagueId, roundNumber: nextRoundNumber },
+        select: { id: true },
+      })
+    ).id
+
+  // Si reutilizamos una jornada pre-creada, descarta slots viejos.
+  await prisma.leagueGroupSlot.deleteMany({ where: { roundId: nextRoundId } })
+
+  await persistGroups(club.id, round.leagueId, nextRoundId, nextGroups)
+
+  revalidatePath(`/dashboard/ligas/${round.leagueId}`)
+  revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${roundId}`)
+  revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
+  return { success: true }
 }

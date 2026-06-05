@@ -4,7 +4,11 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
-import { RoundMatches, type MatchItem } from '@/components/dashboard/round-matches'
+import {
+  RoundMatches,
+  type MatchItem,
+  type RoundGroup,
+} from '@/components/dashboard/round-matches'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
@@ -85,8 +89,13 @@ export default async function JornadaDetailPage({
     }),
     prisma.match.findMany({
       where: { leagueRoundId: roundId },
-      // Grupo 1 primero; los partidos sin grupo van al final (NULLS LAST en PG).
-      orderBy: [{ groupNumber: 'asc' }, { createdAt: 'asc' }],
+      // Grupo 1 primero; dentro del grupo, el set 1/2/3 por intraGroupOrder.
+      // Los partidos sin grupo/orden van al final (NULLS LAST en PG).
+      orderBy: [
+        { groupNumber: 'asc' },
+        { intraGroupOrder: 'asc' },
+        { createdAt: 'asc' },
+      ],
       include: {
         court: { select: { name: true } },
         sides: {

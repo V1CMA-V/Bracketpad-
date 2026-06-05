@@ -57,6 +57,7 @@ export async function createEvent(input: unknown): Promise<CreateEventState> {
       clubId,
       name: data.name,
       format: data.format,
+      playKind: data.playKind,
       startDate: toDate(data.startDate),
       endDate: toDate(data.endDate),
       // La clasificación se decide por sets ganados (no por puntos de victoria).

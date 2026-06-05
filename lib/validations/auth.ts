@@ -24,3 +24,16 @@ export const registerClubOwnerSchema = z
   })
 
 export type RegisterClubOwnerInput = z.infer<typeof registerClubOwnerSchema>
+
+export const loginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.email('Introduce un correo electrónico válido.')),
+  // En el login no validamos longitud para no filtrar la política de
+  // contraseñas; basta con que el campo no esté vacío.
+  password: z.string().min(1, 'Introduce tu contraseña.'),
+})
+
+export type LoginInput = z.infer<typeof loginSchema>

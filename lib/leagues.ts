@@ -24,6 +24,25 @@ export const registrationStatusLabels: Record<string, string> = {
   withdrawn: 'Retirada',
 }
 
+export const matchStatusLabels: Record<string, string> = {
+  scheduled: 'Programado',
+  in_progress: 'En juego',
+  suspended: 'Suspendido',
+  finished: 'Finalizado',
+  walkover: 'W.O.',
+  cancelled: 'Cancelado',
+}
+
+/** Color por estado de partido para puntos/badges en la vista pública. */
+export const matchStatusStyles: Record<string, { text: string; dot: string }> = {
+  scheduled: { text: 'text-ink/50', dot: 'bg-ink/40' },
+  in_progress: { text: 'text-terracotta', dot: 'bg-terracotta' },
+  suspended: { text: 'text-ochre', dot: 'bg-ochre' },
+  finished: { text: 'text-forest', dot: 'bg-forest' },
+  walkover: { text: 'text-ochre', dot: 'bg-ochre' },
+  cancelled: { text: 'text-ink/40', dot: 'bg-ink/30' },
+}
+
 /** Clases de color por estado para badges/puntos en el dashboard. */
 export const leagueStatusStyles: Record<string, { text: string; dot: string }> =
   {

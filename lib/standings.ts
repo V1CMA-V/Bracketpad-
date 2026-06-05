@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { NO_SHOW_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
 
 /* -------------------------------------------------------------------------- */
 /*  Orden de la clasificación                                                  */
@@ -150,6 +151,18 @@ export async function recomputeStandings(leagueId: string) {
 
     apply(sideA.players, setsA, setsB, gamesA, gamesB, match.winnerSide === 'A')
     apply(sideB.players, setsB, setsA, gamesB, gamesA, match.winnerSide === 'B')
+  }
+
+  // Penalización por no presentarse: el jugador pierde la jornada como un forfeit
+  // de sus 3 sets rotativos (−3 juegos por set), es decir −9 en diferencia de
+  // juegos. Se aplica una vez por jornada en la que estuvo ausente.
+  for (const s of absentSlots) {
+    const acc = byPlayer.get(s.registration.playerId)
+    if (!acc) continue
+    acc.matchesPlayed += NO_SHOW_SETS
+    acc.losses += NO_SHOW_SETS
+    acc.setsAgainst += NO_SHOW_SETS
+    acc.gamesAgainst += NO_SHOW_SETS * NO_SHOW_GAMES_PER_SET
   }
 
   await prisma.$transaction(

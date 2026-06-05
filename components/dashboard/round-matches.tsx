@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { NO_SHOW_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
 import {
   captureGroupResults,
@@ -1130,15 +1131,16 @@ function GroupCard({
   const stats: GroupStat[] = derived.map((p) => {
     const mem = memberByPlayer.get(p.id)
     if (mem?.attendance === 'absent') {
+      // No se presentó: forfeit de sus 3 sets → −9 en diferencia de juegos.
       return {
         id: p.id,
         name: mem.fullName,
         note: mem.substituteName ? `No llegó · ${mem.substituteName}` : 'No llegó',
         isAbsent: true,
         setsWon: 0,
-        setsLost: matches.filter((m) => m.sets.length > 0).length,
+        setsLost: NO_SHOW_SETS,
         gamesFor: 0,
-        gamesAgainst: 0,
+        gamesAgainst: NO_SHOW_SETS * NO_SHOW_GAMES_PER_SET,
       }
     }
     let setsWon = 0

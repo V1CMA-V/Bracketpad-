@@ -6,10 +6,20 @@
       "sourceType": "autoskills-registry",
       "computedHash": "bffe3d08cfe92ebad63699f74ce29e35c19850ebfbf474c1463183cfe34d6a09"
     },
+    "best-practices": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "0d59bc23f61ba03b850aa3b81392044c5c7fa3662a5f61b98490b20b0f14a56a"
+    },
     "composition-patterns": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "autoskills-registry",
       "computedHash": "c124390cc3441844903ada94cb5820b23d922f2d0ad34e01e029e410197c8a32"
+    },
+    "emailAndPassword": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "1cbc9527756aa933c0f2f5ad7f18fe493f78ef0f4b6f073b624fbf6ccbd463c9"
     },
     "frontend-design": {
       "source": "anthropics/skills",
@@ -40,6 +50,11 @@
       "source": "sickn33/antigravity-awesome-skills",
       "sourceType": "autoskills-registry",
       "computedHash": "7361ab02fb6b09913e3bdd9cf61c629ed6c17de9485e6a781054e5d437ccfc29"
+    },
+    "organization": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "74bd4e58dd4b66466f79cf0d00a5e75d5ca81b98c0461ee8cd7faba7d8dc16fa"
     },
     "prisma-cli": {
       "source": "prisma/skills",
@@ -98,10 +113,20 @@
       "sourceType": "autoskills-registry",
       "computedHash": "551eb86a35cbf35747cc1a58059ed7e73aacdf03d2fd2e12f63208ea2c0a4ae9"
     },
+    "twoFactor": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "85230144b20eed676d0cbe8d28997cb9ccc0b293517204215adad0d74fae9a9d"
+    },
     "typescript-advanced-types": {
       "source": "wshobson/agents",
       "sourceType": "autoskills-registry",
       "computedHash": "5ca0e177c6aaaba1889255691224daafdb7d71f317cc70bede1590d3907ded42"
+    },
+    "zod": {
+      "source": "pproenca/dot-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "aa8a97195b07763d37494b511f48be90979fd6826c031956c831cfc58f6a24b8"
     }
   }
 }

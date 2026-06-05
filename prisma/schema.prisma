@@ -254,20 +254,17 @@ enum LeagueStatus {
   archived
 }
 
-// Reemplaza scoringRules JSON con campos concretos
+// Reemplaza scoringRules JSON con campos concretos.
+// El ranking se decide por sets ganados, no por puntos de victoria.
 model LeagueScoringConfig {
-  leagueId       String             @id
-  pointsWin      Int                @default(3) // puntos por victoria
-  pointsLoss     Int                @default(0)
-  pointsDraw     Int                @default(1) // si aplica
-  pointsWalkover Int                @default(0) // para quien no se presenta
-  bestOfSets     Int                @default(3) @db.SmallInt // mejor de 3 / mejor de 1
-  goldenPoint    Boolean            @default(true) // punto de oro en deuce
-  tiebreakAt     Int                @default(6) @db.SmallInt // games para tie-break
-  // criterios de desempate, en orden de prioridad
-  tiebreaker1    StandingTiebreaker @default(head_to_head)
-  tiebreaker2    StandingTiebreaker @default(set_diff)
-  tiebreaker3    StandingTiebreaker @default(game_diff)
+  leagueId    String             @id
+  bestOfSets  Int                @default(3) @db.SmallInt // mejor de 3 / mejor de 1
+  goldenPoint Boolean            @default(true) // punto de oro en deuce
+  tiebreakAt  Int                @default(6) @db.SmallInt // games para tie-break
+  // criterios de desempate, en orden de prioridad (por sets primero)
+  tiebreaker1 StandingTiebreaker @default(set_diff)
+  tiebreaker2 StandingTiebreaker @default(sets_won)
+  tiebreaker3 StandingTiebreaker @default(game_diff)
 
   league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
 
@@ -517,17 +514,16 @@ model LeagueStanding {
   matchesPlayed  Int      @default(0)
   wins           Int      @default(0)
   losses         Int      @default(0)
-  setsFor        Int      @default(0)
+  setsFor        Int      @default(0) // sets ganados — criterio principal del ranking
   setsAgainst    Int      @default(0)
   gamesFor       Int      @default(0)
   gamesAgainst   Int      @default(0)
-  points         Int      @default(0)
   updatedAt      DateTime @updatedAt
 
   league       League             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   registration LeagueRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@id([leagueId, registrationId])
-  @@index([leagueId, division, points])
+  @@index([leagueId, division, setsFor])
   @@map("league_standing")
 }

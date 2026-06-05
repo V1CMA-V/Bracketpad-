@@ -1,5 +1,8 @@
 import { Search } from 'lucide-react'
 import Link from 'next/link'
+import { headers } from 'next/headers'
+import { auth } from '@/auth'
+import { signOutAction } from '@/lib/actions/auth'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
@@ -11,7 +14,9 @@ const links = [
   { label: 'Cómo funciona', href: '/como-funciona' },
 ]
 
-export function Header() {
+export async function Header() {
+  const session = await auth.api.getSession({ headers: await headers() })
+  const user = session?.user
   return (
     <header className="w-full border-b border-foreground/10 bg-background">
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-8 px-6">
@@ -60,15 +65,50 @@ export function Header() {
             </kbd>
           </div>
 
-          <Button
-            variant="outline"
-            className="h-9 rounded-md border-foreground/15 px-4 text-sm"
-          >
-            Entrar
-          </Button>
-          <Button className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90">
-            Crear cuenta
-          </Button>
+          {user ? (
+            <>
+              <form action={signOutAction}>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="h-9 rounded-md border-foreground/15 px-4 text-sm"
+                >
+                  Salir
+                </Button>
+              </form>
+              {user.accountType === 'club_staff' ? (
+                <Button
+                  asChild
+                  className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90"
+                >
+                  <Link href="/dashboard">Ir al dashboard</Link>
+                </Button>
+              ) : (
+                <Button
+                  asChild
+                  className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90"
+                >
+                  <Link href="/cuenta">Ver perfil</Link>
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button
+                asChild
+                variant="outline"
+                className="h-9 rounded-md border-foreground/15 px-4 text-sm"
+              >
+                <Link href="/login">Entrar</Link>
+              </Button>
+              <Button
+                asChild
+                className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90"
+              >
+                <Link href="/registro/club">Crear cuenta</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </header>

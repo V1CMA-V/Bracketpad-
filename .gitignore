@@ -43,3 +43,7 @@ next-env.d.ts
 
 .agents/*
 .claude/*
+
+# Prisma generated client — derivado del schema, se regenera con `prisma generate`
+/generated/
+

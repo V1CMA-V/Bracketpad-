@@ -207,9 +207,9 @@ export default function DashboardResumenPage() {
           Exportar
         </Button>
         <Button asChild className="h-9 gap-1.5 rounded-md px-4 text-sm">
-          <Link href="/dashboard/torneos/nuevo">
+          <Link href="/dashboard/nuevo-evento">
             <Plus className="size-4" strokeWidth={2} />
-            Nuevo torneo
+            Nuevo evento
           </Link>
         </Button>
       </DashboardTopbar>

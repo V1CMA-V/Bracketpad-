@@ -6,21 +6,12 @@ import { z } from 'zod'
 
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { resolveManagedClubId } from '@/lib/club'
 import { createEventSchema } from '@/lib/validations/event'
 
 export type CreateEventState = {
   error?: string
   fieldErrors?: Record<string, string[]>
-}
-
-/** Club que opera el usuario (owner o admin). */
-async function resolveManagedClub(userId: string): Promise<string | null> {
-  const membership = await prisma.clubMembership.findFirst({
-    where: { userId, role: { in: ['owner', 'admin'] } },
-    orderBy: { createdAt: 'asc' },
-    select: { clubId: true },
-  })
-  return membership?.clubId ?? null
 }
 
 function toDate(value?: string): Date | null {
@@ -33,7 +24,7 @@ export async function createEvent(input: unknown): Promise<CreateEventState> {
     return { error: 'Tu sesión ha expirado. Vuelve a iniciar sesión.' }
   }
 
-  const clubId = await resolveManagedClub(session.user.id)
+  const clubId = await resolveManagedClubId(session.user.id)
   if (!clubId) {
     return { error: 'No administras ningún club. Crea un club antes de crear eventos.' }
   }

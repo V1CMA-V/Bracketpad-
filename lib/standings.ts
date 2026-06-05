@@ -89,6 +89,17 @@ export async function recomputeStandings(leagueId: string) {
     })
   }
 
+  // Jugadores ausentes (no llegaron) por jornada: su participación la cubrió un
+  // suplente externo, así que sus resultados no cuentan para su clasificación
+  // (los rivales sí conservan lo que jugaron). Clave: `${roundId}:${playerId}`.
+  const absentSlots = await prisma.leagueGroupSlot.findMany({
+    where: { attendance: 'absent', round: { leagueId } },
+    select: { roundId: true, registration: { select: { playerId: true } } },
+  })
+  const absent = new Set(
+    absentSlots.map((s) => `${s.roundId}:${s.registration.playerId}`),
+  )
+
   const matches = await prisma.match.findMany({
     where: { leagueId, status: 'finished' },
     include: {
@@ -122,6 +133,9 @@ export async function recomputeStandings(leagueId: string) {
       won: boolean,
     ) => {
       for (const p of players) {
+        // El jugador ausente de esta jornada no recibe los resultados que jugó
+        // su suplente.
+        if (absent.has(`${match.leagueRoundId}:${p.playerId}`)) continue
         const acc = byPlayer.get(p.playerId)
         if (!acc) continue
         acc.matchesPlayed += 1

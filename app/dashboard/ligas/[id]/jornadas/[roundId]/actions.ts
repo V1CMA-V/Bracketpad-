@@ -771,6 +771,114 @@ export async function deleteMatch(matchId: string) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Pase de lista: asistencia / suplente de un jugador en su grupo            */
+/* -------------------------------------------------------------------------- */
+
+export async function setSlotAttendance(
+  roundId: string,
+  registrationId: string,
+  attendance: 'pending' | 'present' | 'absent',
+  substituteName: string | null,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  if (!['pending', 'present', 'absent'].includes(attendance)) {
+    return { error: 'Estado de asistencia no válido.' }
+  }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  // El slot debe existir en esta jornada.
+  const slot = await prisma.leagueGroupSlot.findUnique({
+    where: { roundId_registrationId: { roundId, registrationId } },
+    select: { id: true },
+  })
+  if (!slot) return { error: 'Jugador no encontrado en esta jornada.' }
+
+  // El nombre del suplente solo se conserva cuando el jugador está ausente.
+  const sub =
+    attendance === 'absent' ? (substituteName?.trim() || null) : null
+
+  await prisma.leagueGroupSlot.update({
+    where: { roundId_registrationId: { roundId, registrationId } },
+    data: { attendance, substituteName: sub },
+  })
+
+  // La asistencia cambia qué resultados cuentan; recalcula la clasificación.
+  await recomputeStandings(round.leagueId)
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cambiar el estado de un partido (o de todo un grupo) manualmente          */
+/* -------------------------------------------------------------------------- */
+
+// Estados que se pueden fijar a mano. `finished` se deriva al capturar el
+// resultado, así que no se ofrece aquí.
+const MANUAL_STATUSES = [
+  'scheduled',
+  'in_progress',
+  'suspended',
+  'walkover',
+  'cancelled',
+] as const
+type ManualStatus = (typeof MANUAL_STATUSES)[number]
+
+function isManualStatus(v: string): v is ManualStatus {
+  return (MANUAL_STATUSES as readonly string[]).includes(v)
+}
+
+export async function setMatchStatus(
+  matchId: string,
+  status: string,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+  if (!isManualStatus(status)) return { error: 'Estado no válido.' }
+
+  const match = await prisma.match.findFirst({
+    where: { id: matchId, clubId: club.id, contextType: 'league' },
+    select: { id: true, leagueId: true, leagueRoundId: true },
+  })
+  if (!match) return { error: 'Partido no encontrado.' }
+
+  await prisma.match.update({ where: { id: matchId }, data: { status } })
+
+  if (match.leagueId) revalidateRound(match.leagueId, match.leagueRoundId)
+  return { success: true }
+}
+
+export async function setGroupStatus(
+  roundId: string,
+  groupNumber: number,
+  status: string,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+  if (!isManualStatus(status)) return { error: 'Estado no válido.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  await prisma.match.updateMany({
+    where: { leagueRoundId: roundId, groupNumber, clubId: club.id },
+    data: { status },
+  })
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Cerrar jornada → ascenso/descenso → generar la siguiente                  */
 /* -------------------------------------------------------------------------- */
 
@@ -823,6 +931,7 @@ export async function closeRoundAndAdvance(
     select: {
       registrationId: true,
       groupNumber: true,
+      attendance: true,
       registration: { select: { playerId: true } },
     },
   })
@@ -871,6 +980,15 @@ export async function closeRoundAndAdvance(
     }
   }
 
+  // Jugadores que no llegaron: su participación la cubrió un suplente externo,
+  // así que sus resultados no cuentan y pierden la jornada (van al fondo del
+  // grupo y descienden). Los rivales sí conservan lo que jugaron.
+  const absent = new Set(
+    slots
+      .filter((s) => s.attendance === 'absent')
+      .map((s) => s.registration.playerId),
+  )
+
   // Acumula el resultado de cada jugador (solo juega en su grupo esta jornada).
   const acc = new Map<string, GroupAcc>()
   for (const s of slots) {
@@ -909,6 +1027,7 @@ export async function closeRoundAndAdvance(
       won: boolean,
     ) => {
       for (const p of players) {
+        if (absent.has(p.playerId)) continue
         const a = acc.get(p.playerId)
         if (!a) continue
         a.setsFor += ownSets
@@ -961,12 +1080,21 @@ export async function closeRoundAndAdvance(
   const nextMembers: NextMember[] = []
 
   for (const [groupNumber, members] of byGroup) {
-    members.sort((x, y) => compareStandings(x, y, tiebreakers))
-    members.forEach((mem, i) => {
+    // Los presentes se ordenan por resultados; los ausentes pierden la jornada
+    // y van al fondo del grupo en orden estable.
+    const present = members.filter((m) => !absent.has(m.playerId))
+    const missing = members.filter((m) => absent.has(m.playerId))
+    present.sort((x, y) => compareStandings(x, y, tiebreakers))
+    const ordered = [...present, ...missing]
+    ordered.forEach((mem, i) => {
       const rank = i + 1
+      const isAbsent = absent.has(mem.playerId)
       let movement: 'up' | 'down' | 'stay' = 'stay'
-      if (rank === 1 && groupNumber > 1) movement = 'up'
-      else if (rank === members.length && groupNumber < maxGroup)
+      if (isAbsent) {
+        // Pierde la jornada: desciende salvo que ya esté en el grupo más bajo.
+        if (groupNumber < maxGroup) movement = 'down'
+      } else if (rank === 1 && groupNumber > 1) movement = 'up'
+      else if (rank === ordered.length && groupNumber < maxGroup)
         movement = 'down'
       const newGroup =
         movement === 'up'

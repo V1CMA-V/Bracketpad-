@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react'
 import {
+  ClipboardCheck,
   Clock,
   FlagTriangleRight,
   Plus,
@@ -22,6 +23,9 @@ import {
   deleteGroup,
   deleteMatch,
   generateGroupsFromStandings,
+  setGroupStatus,
+  setMatchStatus,
+  setSlotAttendance,
   updateGroupDetails,
   updateMatchDetails,
   type MatchState,
@@ -34,6 +38,9 @@ const initialState: MatchState = {}
 
 type Option = { id: string; name: string }
 
+/** Jugador dentro de un lado del partido (id para resolver suplentes). */
+export type SidePlayer = { id: string; name: string }
+
 export type MatchItem = {
   id: string
   status: string
@@ -44,18 +51,42 @@ export type MatchItem = {
   courtName: string | null
   scheduledLabel: string | null
   scheduledValue: string | null
-  sideA: string[]
-  sideB: string[]
+  sideA: SidePlayer[]
+  sideB: SidePlayer[]
   sets: { gamesA: number; gamesB: number }[]
+}
+
+export type Attendance = 'pending' | 'present' | 'absent'
+
+/** Pase de lista de un grupo: jugadores inscritos, asistencia y suplente. */
+export type GroupRoster = {
+  groupNumber: number
+  members: {
+    registrationId: string
+    playerId: string
+    fullName: string
+    attendance: Attendance
+    substituteName: string | null
+  }[]
 }
 
 const statusLabels: Record<string, string> = {
   scheduled: 'Programado',
   in_progress: 'En juego',
+  suspended: 'Suspendido',
   finished: 'Finalizado',
   walkover: 'W.O.',
   cancelled: 'Cancelado',
 }
+
+// Estados que el operador puede fijar a mano (finished se deriva del resultado).
+const manualStatusOptions: { value: string; label: string }[] = [
+  { value: 'scheduled', label: 'Programado' },
+  { value: 'in_progress', label: 'En juego' },
+  { value: 'suspended', label: 'Suspendido' },
+  { value: 'walkover', label: 'W.O.' },
+  { value: 'cancelled', label: 'Cancelado' },
+]
 
 /* -------------------------------------------------------------------------- */
 /*  Selector de jugador                                                       */
@@ -547,6 +578,47 @@ function MatchDetailsForm({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Selector de estado (manual)                                               */
+/* -------------------------------------------------------------------------- */
+
+function StatusSelect({
+  status,
+  onChange,
+  disabled,
+}: {
+  status: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  return (
+    <select
+      // `key` remonta el select tras revalidar para reflejar el estado guardado.
+      key={status}
+      defaultValue={status}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      title="Estado del partido"
+      className={cn(
+        fieldCls,
+        'h-8 w-auto appearance-none px-2 text-xs uppercase tracking-wider',
+      )}
+    >
+      {manualStatusOptions.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+      {/* El estado finalizado se deriva del resultado; visible pero no elegible. */}
+      {status === 'finished' && (
+        <option value="finished" disabled>
+          Finalizado
+        </option>
+      )}
+    </select>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Fila de partido                                                           */
 /* -------------------------------------------------------------------------- */
 
@@ -561,6 +633,7 @@ function MatchRow({
 }) {
   const [panel, setPanel] = useState<'none' | 'result' | 'schedule'>('none')
   const [pending, startTransition] = useTransition()
+  const [statusPending, startStatus] = useTransition()
   const finished = match.status === 'finished'
 
   const toggle = (which: 'result' | 'schedule') =>
@@ -573,8 +646,8 @@ function MatchRow({
     })
   }
 
-  const sideName = (names: string[]) =>
-    names.length > 0 ? names.join(' / ') : '—'
+  const sideName = (players: SidePlayer[]) =>
+    players.length > 0 ? players.map((p) => p.name).join(' / ') : '—'
 
   return (
     <li
@@ -648,6 +721,13 @@ function MatchRow({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          <StatusSelect
+            status={match.status}
+            disabled={statusPending}
+            onChange={(v) =>
+              startStatus(() => void setMatchStatus(match.id, v))
+            }
+          />
           <button
             type="button"
             onClick={() => toggle('schedule')}
@@ -872,41 +952,166 @@ function GroupDetailsForm({
   )
 }
 
+/** Una fila del pase de lista: marca asistencia y captura el suplente. */
+function AttendanceRow({
+  roundId,
+  member,
+}: {
+  roundId: string
+  member: GroupRoster['members'][number]
+}) {
+  const [pending, start] = useTransition()
+  const [sub, setSub] = useState(member.substituteName ?? '')
+
+  const apply = (attendance: Attendance) =>
+    start(() => {
+      void setSlotAttendance(
+        roundId,
+        member.registrationId,
+        attendance,
+        attendance === 'absent' ? sub : null,
+      )
+    })
+
+  const isAbsent = member.attendance === 'absent'
+  const isPresent = member.attendance === 'present'
+
+  return (
+    <div
+      className={cn(
+        'rounded-md border border-border bg-background/40 px-3 py-2',
+        pending && 'opacity-50',
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={cn(
+            'flex-1 truncate text-sm text-foreground',
+            isAbsent && 'text-muted-foreground line-through',
+          )}
+        >
+          {member.fullName}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => apply('present')}
+            className={cn(
+              'h-7 rounded-md border px-2 text-[11px] uppercase tracking-wider transition-colors disabled:opacity-50',
+              isPresent
+                ? 'border-forest/40 bg-forest/10 text-forest'
+                : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            Presente
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => apply('absent')}
+            className={cn(
+              'h-7 rounded-md border px-2 text-[11px] uppercase tracking-wider transition-colors disabled:opacity-50',
+              isAbsent
+                ? 'border-terracotta/40 bg-terracotta/10 text-terracotta'
+                : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            No llegó
+          </button>
+        </div>
+      </div>
+      {isAbsent && (
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            value={sub}
+            onChange={(e) => setSub(e.target.value)}
+            placeholder="Nombre del suplente…"
+            className={cn(fieldCls, 'h-8 flex-1')}
+          />
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => apply('absent')}
+            title="Guardar suplente"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            <Save className="size-4" strokeWidth={2} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GroupCard({
   roundId,
   group,
+  roster,
   courts,
 }: {
   roundId: string
   group: RoundGroup
+  roster?: GroupRoster
   courts: Option[]
 }) {
   const boundAction = captureGroupResults.bind(null, roundId)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
-  const [editing, setEditing] = useState(false)
+  const [panel, setPanel] = useState<'none' | 'edit' | 'checkin'>('none')
   const [removing, startRemove] = useTransition()
+  const [statusPending, startStatus] = useTransition()
 
   const matches = [...group.matches].sort(
     (a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0),
   )
-  // Los 4 jugadores del grupo salen del primer set: A = [P1,P2], B = [P3,P4].
+
+  // Datos del jugador por id, para resolver suplentes en los nombres mostrados.
+  const memberByPlayer = new Map(
+    (roster?.members ?? []).map((m) => [m.playerId, m]),
+  )
+
+  // Lista de jugadores del grupo (inscritos). Si no hay pase de lista cargado,
+  // se deriva del primer set: A = [P1,P2], B = [P3,P4].
   const first = matches[0]
-  const roster =
+  const derived: SidePlayer[] =
     first && first.sideA.length + first.sideB.length === 4
       ? [...first.sideA, ...first.sideB]
-      : [...new Set(matches.flatMap((m) => [...m.sideA, ...m.sideB]))]
+      : [
+          ...new Map(
+            matches.flatMap((m) => [...m.sideA, ...m.sideB]).map((p) => [p.id, p]),
+          ).values(),
+        ]
 
-  // Reparto de juegos por jugador (de los sets ya guardados).
-  const gamesByPlayer = new Map<string, number>(roster.map((n) => [n, 0]))
+  // Nombre a mostrar: si el jugador no llegó, se muestra a su suplente.
+  const displayName = (p: SidePlayer) => {
+    const mem = memberByPlayer.get(p.id)
+    if (mem?.attendance === 'absent') {
+      return mem.substituteName ? `${mem.substituteName} (sup.)` : '(suplente)'
+    }
+    return p.name
+  }
+
+  // Reparto de juegos por jugador (de los sets ya guardados), por id.
+  const gamesByPlayer = new Map<string, number>()
   for (const m of matches) {
     for (const s of m.sets) {
-      for (const n of m.sideA)
-        gamesByPlayer.set(n, (gamesByPlayer.get(n) ?? 0) + s.gamesA)
-      for (const n of m.sideB)
-        gamesByPlayer.set(n, (gamesByPlayer.get(n) ?? 0) + s.gamesB)
+      for (const p of m.sideA)
+        gamesByPlayer.set(p.id, (gamesByPlayer.get(p.id) ?? 0) + s.gamesA)
+      for (const p of m.sideB)
+        gamesByPlayer.set(p.id, (gamesByPlayer.get(p.id) ?? 0) + s.gamesB)
     }
   }
   const anyScores = matches.some((m) => m.sets.length > 0)
+
+  // Estado representativo del grupo (todos sus sets se mueven juntos).
+  const groupStatus = (() => {
+    if (matches.every((m) => m.status === 'finished')) return 'finished'
+    if (matches.some((m) => m.status === 'in_progress')) return 'in_progress'
+    if (matches.some((m) => m.status === 'suspended')) return 'suspended'
+    if (matches.some((m) => m.status === 'cancelled')) return 'cancelled'
+    if (matches.some((m) => m.status === 'walkover')) return 'walkover'
+    return 'scheduled'
+  })()
 
   const remove = () => {
     if (!confirm(`¿Eliminar el grupo ${group.groupNumber} y sus 3 sets?`)) return
@@ -921,8 +1126,17 @@ function GroupCard({
     .map((m) => `${m.id}:${m.sets.map((s) => `${s.gamesA}-${s.gamesB}`).join(',')}`)
     .join('|')
 
-  const pairLabel = (names: string[]) =>
-    names.length > 0 ? names.join(' / ') : '—'
+  const pairLabel = (players: SidePlayer[]) =>
+    players.length > 0 ? players.map(displayName).join(' / ') : '—'
+
+  // Resumen de la formación: jugadores con marca de ausencia y su suplente.
+  const lineup = roster?.members.length
+    ? roster.members.map((m) =>
+        m.attendance === 'absent'
+          ? `${m.fullName} → ${m.substituteName ?? 'suplente'}`
+          : m.fullName,
+      )
+    : derived.map((p) => p.name)
 
   return (
     <div
@@ -944,32 +1158,56 @@ function GroupCard({
             )}
           </h3>
           <p className="mt-1 truncate text-sm text-muted-foreground">
-            {roster.join(' · ')}
+            {lineup.join(' · ')}
           </p>
           <p className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span>{statusLabels[groupStatus] ?? groupStatus}</span>
             {group.scheduledLabel && (
-              <span className="normal-case tracking-normal">
-                {group.scheduledLabel}
-              </span>
+              <>
+                <span className="text-foreground/25">·</span>
+                <span className="normal-case tracking-normal">
+                  {group.scheduledLabel}
+                </span>
+              </>
             )}
             {group.courtName && (
               <>
-                {group.scheduledLabel && (
-                  <span className="text-foreground/25">·</span>
-                )}
+                <span className="text-foreground/25">·</span>
                 <span>{group.courtName}</span>
               </>
             )}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <StatusSelect
+            status={groupStatus}
+            disabled={statusPending}
+            onChange={(v) =>
+              startStatus(() => void setGroupStatus(roundId, group.groupNumber, v))
+            }
+          />
+          {roster?.members.length ? (
+            <button
+              type="button"
+              onClick={() =>
+                setPanel((p) => (p === 'checkin' ? 'none' : 'checkin'))
+              }
+              title="Pase de lista"
+              className={cn(
+                'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                panel === 'checkin' && 'bg-muted text-foreground',
+              )}
+            >
+              <ClipboardCheck className="size-4" strokeWidth={2} />
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => setPanel((p) => (p === 'edit' ? 'none' : 'edit'))}
             title="Editar horario y cancha del grupo"
             className={cn(
               'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-              editing && 'bg-muted text-foreground',
+              panel === 'edit' && 'bg-muted text-foreground',
             )}
           >
             <Clock className="size-4" strokeWidth={2} />
@@ -986,14 +1224,35 @@ function GroupCard({
         </div>
       </div>
 
-      {editing && (
+      {panel === 'edit' && (
         <GroupDetailsForm
           roundId={roundId}
           group={group}
           courts={courts}
-          onDone={() => setEditing(false)}
+          onDone={() => setPanel('none')}
         />
       )}
+
+      {panel === 'checkin' && roster?.members.length ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Pase de lista
+          </p>
+          <div className="space-y-2">
+            {roster.members.map((mem) => (
+              <AttendanceRow
+                key={mem.registrationId}
+                roundId={roundId}
+                member={mem}
+              />
+            ))}
+          </div>
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            «No llegó» hace que el jugador pierda la jornada (último del grupo,
+            desciende). El suplente cubre el partido, pero sus puntos no cuentan.
+          </p>
+        </div>
+      ) : null}
 
       <form key={formKey} action={formAction} className="mt-4 space-y-2">
         {state.error && (
@@ -1057,8 +1316,13 @@ function GroupCard({
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
             {anyScores
-              ? roster
-                  .map((n) => `${n.split(' ')[0]} ${gamesByPlayer.get(n) ?? 0}`)
+              ? derived
+                  .map(
+                    (p) =>
+                      `${displayName(p).split(' ')[0]} ${
+                        gamesByPlayer.get(p.id) ?? 0
+                      }`,
+                  )
                   .join(' · ')
               : 'Deja vacíos los sets no jugados. Los juegos se reparten por jugador.'}
           </p>
@@ -1086,6 +1350,7 @@ export function RoundMatches({
   players,
   courts,
   matches,
+  rosters,
   playKind,
   bestOfSets,
   defaultDateTime,
@@ -1094,11 +1359,13 @@ export function RoundMatches({
   players: Option[]
   courts: Option[]
   matches: MatchItem[]
+  rosters: GroupRoster[]
   playKind: 'individual' | 'pairs'
   bestOfSets: number
   defaultDateTime?: string
 }) {
   const isIndividual = playKind === 'individual'
+  const rosterByGroup = new Map(rosters.map((r) => [r.groupNumber, r]))
 
   // En ligas individuales los partidos con grupo se muestran como tarjetas de
   // grupo; el resto (sin grupo, o ligas de parejas) como filas sueltas.
@@ -1176,6 +1443,7 @@ export function RoundMatches({
                 key={g.groupNumber}
                 roundId={roundId}
                 group={g}
+                roster={rosterByGroup.get(g.groupNumber)}
                 courts={courts}
               />
             ))}

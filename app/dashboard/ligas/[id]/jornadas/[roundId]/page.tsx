@@ -6,6 +6,7 @@ import type { Metadata } from 'next'
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import {
   RoundMatches,
+  type GroupRoster,
   type MatchItem,
 } from '@/components/dashboard/round-matches'
 import { Button } from '@/components/ui/button'
@@ -76,7 +77,7 @@ export default async function JornadaDetailPage({
   })
   if (!round) notFound()
 
-  const [registrations, courts, matches] = await Promise.all([
+  const [registrations, courts, matches, slots] = await Promise.all([
     prisma.leagueRegistration.findMany({
       where: { leagueId: id, status: 'active' },
       orderBy: { player: { fullName: 'asc' } },
@@ -109,6 +110,19 @@ export default async function JornadaDetailPage({
         sets: { orderBy: { setNumber: 'asc' } },
       },
     }),
+    prisma.leagueGroupSlot.findMany({
+      where: { roundId },
+      orderBy: { groupNumber: 'asc' },
+      select: {
+        groupNumber: true,
+        registrationId: true,
+        attendance: true,
+        substituteName: true,
+        registration: {
+          select: { playerId: true, player: { select: { fullName: true } } },
+        },
+      },
+    }),
   ])
 
   const players = registrations.map((r) => ({
@@ -120,7 +134,8 @@ export default async function JornadaDetailPage({
     const side = (s: 'A' | 'B') =>
       m.sides
         .find((x) => x.side === s)
-        ?.players.map((p) => p.player.fullName) ?? []
+        ?.players.map((p) => ({ id: p.playerId, name: p.player.fullName })) ??
+      []
     return {
       id: m.id,
       status: m.status,
@@ -136,6 +151,26 @@ export default async function JornadaDetailPage({
       sets: m.sets.map((s) => ({ gamesA: s.gamesA, gamesB: s.gamesB })),
     }
   })
+
+  // Pase de lista por grupo: jugador, asistencia y suplente (si no llegó).
+  const rosters: GroupRoster[] = [
+    ...slots
+      .reduce((map, s) => {
+        const list = map.get(s.groupNumber) ?? []
+        list.push({
+          registrationId: s.registrationId,
+          playerId: s.registration.playerId,
+          fullName: s.registration.player.fullName,
+          attendance: s.attendance,
+          substituteName: s.substituteName,
+        })
+        map.set(s.groupNumber, list)
+        return map
+      }, new Map<number, GroupRoster['members']>())
+      .entries(),
+  ]
+    .sort((a, b) => a[0] - b[0])
+    .map(([groupNumber, members]) => ({ groupNumber, members }))
 
   const bestOfSets = round.league.scoringConfig?.bestOfSets ?? 3
   const roundLabel = round.name ?? `Jornada ${round.roundNumber}`
@@ -188,6 +223,7 @@ export default async function JornadaDetailPage({
             players={players}
             courts={courts}
             matches={matchItems}
+            rosters={rosters}
             playKind={round.league.playKind}
             bestOfSets={bestOfSets}
             defaultDateTime={defaultDateTime}

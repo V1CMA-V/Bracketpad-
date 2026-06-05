@@ -476,6 +476,7 @@ enum MatchContext {
 enum MatchStatus {
   scheduled
   in_progress
+  suspended
   finished
   walkover
   cancelled
@@ -555,6 +556,11 @@ model LeagueGroupSlot {
   roundId        String
   groupNumber    Int            @db.SmallInt // 1 = grupo más alto
   registrationId String
+  // Pase de lista: si el jugador llegó al partido. Cuando es `absent`, su
+  // participación la cubre un suplente externo (substituteName) cuyos puntos
+  // no cuentan; el jugador pierde la jornada (último del grupo, desciende).
+  attendance     SlotAttendance @default(pending)
+  substituteName String? // nombre del suplente externo que jugó en su lugar
   // Se llenan al cerrar la jornada:
   setsWon        Int?           @db.SmallInt
   rankInGroup    Int?           @db.SmallInt // 1..4
@@ -566,6 +572,12 @@ model LeagueGroupSlot {
   @@unique([roundId, registrationId])
   @@index([roundId, groupNumber])
   @@map("league_group_slot")
+}
+
+enum SlotAttendance {
+  pending // sin pasar lista todavía
+  present // llegó al partido
+  absent // no llegó; lo cubre un suplente y pierde la jornada
 }
 
 enum GroupMovement {

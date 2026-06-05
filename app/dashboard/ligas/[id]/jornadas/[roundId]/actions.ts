@@ -7,14 +7,17 @@ import { z } from 'zod'
 import { Prisma } from '@/generated/client'
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
-import { createMatchSchema } from '@/lib/validations/jornada'
+import { createGroupSchema, createMatchSchema } from '@/lib/validations/jornada'
 import { compareStandings, recomputeStandings } from '@/lib/standings'
 
 export type MatchState = {
   success?: boolean
   error?: string
   fieldErrors?: Partial<
-    Record<'a1' | 'b1' | 'scheduledAt' | 'groupNumber', string[]>
+    Record<
+      'a1' | 'b1' | 'scheduledAt' | 'groupNumber' | 'p1' | 'p2' | 'p3' | 'p4',
+      string[]
+    >
   >
 }
 
@@ -304,6 +307,309 @@ export async function generateGroupsFromStandings(
 
   revalidateRound(round.leagueId, round.id)
   return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Crear un grupo de 4 (genera los 3 sets rotativos)                          */
+/* -------------------------------------------------------------------------- */
+
+export async function createGroup(
+  roundId: string,
+  _prevState: MatchState,
+  formData: FormData,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true, league: { select: { playKind: true } } },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round.league.playKind !== 'individual') {
+    return { error: 'Los grupos solo aplican a ligas individuales.' }
+  }
+
+  const parsed = createGroupSchema.safeParse({
+    courtId: (formData.get('courtId') as string) || undefined,
+    groupNumber: (formData.get('groupNumber') as string) || undefined,
+    scheduledAt: (formData.get('scheduledAt') as string) || undefined,
+    p1: formData.get('p1'),
+    p2: formData.get('p2'),
+    p3: formData.get('p3'),
+    p4: formData.get('p4'),
+  })
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
+  }
+
+  const { courtId, scheduledAt } = parsed.data
+  const playerIds = [parsed.data.p1, parsed.data.p2, parsed.data.p3, parsed.data.p4]
+  if (new Set(playerIds).size !== 4) {
+    return { error: 'Un grupo debe tener 4 jugadores distintos.' }
+  }
+
+  // Los 4 deben estar inscritos y activos en la liga.
+  const regs = await prisma.leagueRegistration.findMany({
+    where: { leagueId: round.leagueId, status: 'active', playerId: { in: playerIds } },
+    select: { id: true, playerId: true },
+  })
+  if (regs.length !== 4) {
+    return { error: 'Hay jugadores que no están inscritos en la liga.' }
+  }
+  const regByPlayer = new Map(regs.map((r) => [r.playerId, r.id]))
+
+  // Ningún jugador puede estar ya en otro grupo de esta jornada.
+  const taken = await prisma.leagueGroupSlot.count({
+    where: { roundId, registrationId: { in: regs.map((r) => r.id) } },
+  })
+  if (taken > 0) {
+    return { error: 'Algún jugador ya pertenece a un grupo de esta jornada.' }
+  }
+
+  // La cancha (si se indica) debe ser del club.
+  if (courtId) {
+    const court = await prisma.court.findFirst({
+      where: { id: courtId, clubId: club.id },
+      select: { id: true },
+    })
+    if (!court) return { error: 'Cancha no válida.' }
+  }
+
+  // Número de grupo: el indicado (si está libre) o el siguiente disponible.
+  let groupNumber = parsed.data.groupNumber ?? null
+  if (groupNumber != null) {
+    const used = await prisma.match.count({
+      where: { leagueRoundId: roundId, groupNumber },
+    })
+    if (used > 0) {
+      return {
+        fieldErrors: {
+          groupNumber: [`El grupo ${groupNumber} ya existe en esta jornada.`],
+        },
+      }
+    }
+  } else {
+    const agg = await prisma.match.aggregate({
+      where: { leagueRoundId: roundId },
+      _max: { groupNumber: true },
+    })
+    groupNumber = (agg._max.groupNumber ?? 0) + 1
+  }
+
+  const when = scheduledAt ? new Date(scheduledAt) : null
+
+  const matchesData: Prisma.MatchCreateManyInput[] = []
+  const sidesData: Prisma.MatchSideCreateManyInput[] = []
+  const playersData: Prisma.MatchSidePlayerCreateManyInput[] = []
+  rotatingPairings(playerIds).forEach((pairing, pi) => {
+    const matchId = randomUUID()
+    matchesData.push({
+      id: matchId,
+      clubId: club.id,
+      contextType: 'league',
+      leagueId: round.leagueId,
+      leagueRoundId: round.id,
+      groupNumber,
+      intraGroupOrder: pi + 1,
+      courtId: courtId || null,
+      scheduledAt: when,
+      status: 'scheduled',
+    })
+    for (const { side, ids } of [
+      { side: 'A' as const, ids: pairing.a },
+      { side: 'B' as const, ids: pairing.b },
+    ]) {
+      const sideId = randomUUID()
+      sidesData.push({ id: sideId, matchId, side })
+      for (const playerId of ids) {
+        playersData.push({ matchSideId: sideId, playerId })
+      }
+    }
+  })
+  const slotsData: Prisma.LeagueGroupSlotCreateManyInput[] = playerIds.map(
+    (playerId) => ({
+      roundId,
+      groupNumber: groupNumber!,
+      registrationId: regByPlayer.get(playerId)!,
+    }),
+  )
+
+  await prisma.$transaction(
+    [
+      prisma.match.createMany({ data: matchesData }),
+      prisma.matchSide.createMany({ data: sidesData }),
+      prisma.matchSidePlayer.createMany({ data: playersData }),
+      prisma.leagueGroupSlot.createMany({ data: slotsData }),
+    ],
+    { timeout: 15000 },
+  )
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Capturar los 3 sets de un grupo de una sola vez                            */
+/* -------------------------------------------------------------------------- */
+
+export async function captureGroupResults(
+  roundId: string,
+  _prevState: MatchState,
+  formData: FormData,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  const matchIds = formData.getAll('matchId').map((v) => String(v))
+  const gamesA = formData.getAll('gamesA').map((v) => String(v).trim())
+  const gamesB = formData.getAll('gamesB').map((v) => String(v).trim())
+
+  // Solo partidos de esta jornada y de este club.
+  const owned = await prisma.match.findMany({
+    where: {
+      id: { in: matchIds },
+      clubId: club.id,
+      leagueRoundId: roundId,
+      contextType: 'league',
+    },
+    select: { id: true },
+  })
+  const valid = new Set(owned.map((m) => m.id))
+
+  const ops: Prisma.PrismaPromise<unknown>[] = []
+  for (let i = 0; i < matchIds.length; i++) {
+    const id = matchIds[i]
+    if (!valid.has(id)) continue
+    const a = gamesA[i] ?? ''
+    const b = gamesB[i] ?? ''
+
+    // Ambos vacíos → set sin jugar: limpia el marcador y vuelve a "programado".
+    if (!a && !b) {
+      ops.push(prisma.matchSet.deleteMany({ where: { matchId: id } }))
+      ops.push(
+        prisma.match.update({
+          where: { id },
+          data: { status: 'scheduled', winnerSide: null },
+        }),
+      )
+      continue
+    }
+
+    const na = Number(a)
+    const nb = Number(b)
+    if (
+      !Number.isInteger(na) ||
+      !Number.isInteger(nb) ||
+      na < 0 ||
+      nb < 0 ||
+      na > 99 ||
+      nb > 99
+    ) {
+      return { error: `Resultado inválido en el set ${i + 1}.` }
+    }
+    if (na === nb) {
+      return { error: `El set ${i + 1} no puede quedar empatado.` }
+    }
+
+    ops.push(prisma.matchSet.deleteMany({ where: { matchId: id } }))
+    ops.push(
+      prisma.matchSet.create({
+        data: { matchId: id, setNumber: 1, gamesA: na, gamesB: nb },
+      }),
+    )
+    ops.push(
+      prisma.match.update({
+        where: { id },
+        data: { status: 'finished', winnerSide: na > nb ? 'A' : 'B' },
+      }),
+    )
+  }
+
+  if (ops.length === 0) return { error: 'No hay resultados que guardar.' }
+
+  await prisma.$transaction(ops)
+  await recomputeStandings(round.leagueId)
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editar / eliminar un grupo completo                                        */
+/* -------------------------------------------------------------------------- */
+
+export async function updateGroupDetails(
+  roundId: string,
+  groupNumber: number,
+  _prevState: MatchState,
+  formData: FormData,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  const raw = ((formData.get('scheduledAt') as string) || '').trim()
+  if (raw && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) {
+    return { fieldErrors: { scheduledAt: ['Fecha y hora inválidas.'] } }
+  }
+
+  const rawCourt = ((formData.get('courtId') as string) || '').trim()
+  if (rawCourt) {
+    const court = await prisma.court.findFirst({
+      where: { id: rawCourt, clubId: club.id },
+      select: { id: true },
+    })
+    if (!court) return { error: 'Cancha no válida.' }
+  }
+
+  await prisma.match.updateMany({
+    where: { leagueRoundId: roundId, groupNumber, clubId: club.id },
+    data: {
+      scheduledAt: raw ? new Date(raw) : null,
+      courtId: rawCourt || null,
+    },
+  })
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+export async function deleteGroup(roundId: string, groupNumber: number) {
+  const club = await getManagedClub()
+  if (!club) return
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return
+
+  const matches = await prisma.match.findMany({
+    where: { leagueRoundId: roundId, groupNumber, clubId: club.id },
+    select: { id: true, status: true },
+  })
+  if (matches.length === 0) return
+
+  const hadFinished = matches.some((m) => m.status === 'finished')
+
+  await prisma.$transaction([
+    prisma.match.deleteMany({ where: { id: { in: matches.map((m) => m.id) } } }),
+    prisma.leagueGroupSlot.deleteMany({ where: { roundId, groupNumber } }),
+  ])
+
+  if (hadFinished) await recomputeStandings(round.leagueId)
+  revalidateRound(round.leagueId, round.id)
 }
 
 /* -------------------------------------------------------------------------- */

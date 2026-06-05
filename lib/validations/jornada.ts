@@ -30,5 +30,27 @@ export const createMatchSchema = z.object({
   b2: z.string().trim().optional(),
 })
 
+// Crear un grupo de 4 jugadores individuales (genera los 3 sets rotativos).
+export const createGroupSchema = z.object({
+  courtId: z.string().trim().optional(),
+  // Grupo/nivel: 1 = más alto. Vacío = se asigna el siguiente disponible.
+  groupNumber: z.coerce
+    .number()
+    .int('El grupo debe ser un número entero.')
+    .min(1, 'El grupo debe ser 1 o mayor.')
+    .max(99, 'Grupo demasiado alto.')
+    .optional(),
+  scheduledAt: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Fecha y hora inválidas.')
+    .optional(),
+  p1: z.string().trim().min(1, 'Selecciona al jugador 1.'),
+  p2: z.string().trim().min(1, 'Selecciona al jugador 2.'),
+  p3: z.string().trim().min(1, 'Selecciona al jugador 3.'),
+  p4: z.string().trim().min(1, 'Selecciona al jugador 4.'),
+})
+
 export type CreateRoundInput = z.infer<typeof createRoundSchema>
 export type CreateMatchInput = z.infer<typeof createMatchSchema>
+export type CreateGroupInput = z.infer<typeof createGroupSchema>

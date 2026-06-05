@@ -1,16 +1,28 @@
 'use client'
 
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react'
-import { Clock, FlagTriangleRight, Plus, Save, Trash2, Wand2 } from 'lucide-react'
+import {
+  Clock,
+  FlagTriangleRight,
+  Plus,
+  Save,
+  Trash2,
+  Users,
+  Wand2,
+} from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
+  captureGroupResults,
   captureMatchResult,
   closeRoundAndAdvance,
+  createGroup,
   createMatch,
+  deleteGroup,
   deleteMatch,
   generateGroupsFromStandings,
+  updateGroupDetails,
   updateMatchDetails,
   type MatchState,
 } from '@/app/dashboard/ligas/[id]/jornadas/[roundId]/actions'
@@ -27,6 +39,7 @@ export type MatchItem = {
   status: string
   winnerSide: 'A' | 'B' | null
   groupNumber: number | null
+  intraGroupOrder: number | null
   courtId: string | null
   courtName: string | null
   scheduledLabel: string | null
@@ -192,25 +205,26 @@ function CreateMatchForm({
             aria-invalid={!!state.fieldErrors?.scheduledAt}
           />
         </div>
-        {courts.length > 0 && (
-          <div className="sm:flex-1">
-            <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Cancha
-            </label>
-            <select
-              name="courtId"
-              defaultValue=""
-              className={cn(fieldCls, 'w-full appearance-none')}
-            >
-              <option value="">Sin cancha asignada</option>
-              {courts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="sm:flex-1">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Cancha
+          </label>
+          <select
+            name="courtId"
+            defaultValue=""
+            disabled={courts.length === 0}
+            className={cn(fieldCls, 'w-full appearance-none')}
+          >
+            <option value="">
+              {courts.length === 0 ? 'Sin canchas registradas' : 'Sin cancha asignada'}
+            </option>
+            {courts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
         <Button
           type="submit"
           className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
@@ -218,6 +232,131 @@ function CreateMatchForm({
         >
           <Plus className="size-4" strokeWidth={2} />
           {pending ? 'Creando…' : 'Crear partido'}
+        </Button>
+      </div>
+      {(state.fieldErrors?.groupNumber?.[0] ||
+        state.fieldErrors?.scheduledAt?.[0]) && (
+        <p className="mt-1.5 text-xs text-destructive">
+          {state.fieldErrors?.groupNumber?.[0] ??
+            state.fieldErrors?.scheduledAt?.[0]}
+        </p>
+      )}
+    </form>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Crear grupo de 4 (genera los 3 sets rotativos)                            */
+/* -------------------------------------------------------------------------- */
+
+function CreateGroupForm({
+  roundId,
+  players,
+  courts,
+  defaultDateTime,
+}: {
+  roundId: string
+  players: Option[]
+  courts: Option[]
+  defaultDateTime?: string
+}) {
+  const boundAction = createGroup.bind(null, roundId)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+  const formRef = useRef<HTMLFormElement>(null)
+
+  useEffect(() => {
+    if (state.success) formRef.current?.reset()
+  }, [state.success])
+
+  const slots = ['p1', 'p2', 'p3', 'p4'] as const
+
+  return (
+    <form
+      ref={formRef}
+      action={formAction}
+      noValidate
+      className="rounded-xl border border-border bg-card p-4"
+    >
+      <p className="mb-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <Users className="size-3.5" strokeWidth={2} />
+        Crear grupo de 4 · 3 sets rotativos
+      </p>
+      {state.error && (
+        <p className="mb-3 text-xs text-destructive">{state.error}</p>
+      )}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {slots.map((slot, i) => (
+          <div key={slot}>
+            <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Jugador {i + 1}
+            </label>
+            <PlayerSelect
+              name={slot}
+              players={players}
+              required
+              placeholder={`Jugador ${i + 1}…`}
+              invalid={!!state.fieldErrors?.[slot]}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="sm:w-24">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Grupo
+          </label>
+          <input
+            name="groupNumber"
+            type="number"
+            min={1}
+            max={99}
+            placeholder="auto"
+            className={cn(fieldCls, 'w-full')}
+            aria-invalid={!!state.fieldErrors?.groupNumber}
+          />
+        </div>
+        <div className="sm:flex-1">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Horario
+          </label>
+          <input
+            name="scheduledAt"
+            type="datetime-local"
+            defaultValue={defaultDateTime}
+            className={cn(fieldCls, 'w-full')}
+            aria-invalid={!!state.fieldErrors?.scheduledAt}
+          />
+        </div>
+        <div className="sm:flex-1">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Cancha
+          </label>
+          <select
+            name="courtId"
+            defaultValue=""
+            disabled={courts.length === 0}
+            className={cn(fieldCls, 'w-full appearance-none')}
+          >
+            <option value="">
+              {courts.length === 0
+                ? 'Sin canchas registradas'
+                : 'Sin cancha asignada'}
+            </option>
+            {courts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button
+          type="submit"
+          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
+          disabled={pending}
+        >
+          <Plus className="size-4" strokeWidth={2} />
+          {pending ? 'Creando…' : 'Crear grupo'}
         </Button>
       </div>
       {(state.fieldErrors?.groupNumber?.[0] ||
@@ -363,25 +502,26 @@ function MatchDetailsForm({
             aria-invalid={!!state.fieldErrors?.scheduledAt}
           />
         </div>
-        {courts.length > 0 && (
-          <div>
-            <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Cancha
-            </label>
-            <select
-              name="courtId"
-              defaultValue={currentCourtId ?? ''}
-              className={cn(fieldCls, 'w-56 appearance-none')}
-            >
-              <option value="">Sin cancha asignada</option>
-              {courts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div>
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Cancha
+          </label>
+          <select
+            name="courtId"
+            defaultValue={currentCourtId ?? ''}
+            disabled={courts.length === 0}
+            className={cn(fieldCls, 'w-56 appearance-none')}
+          >
+            <option value="">
+              {courts.length === 0 ? 'Sin canchas registradas' : 'Sin cancha asignada'}
+            </option>
+            {courts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
         <Button
           type="submit"
           variant="outline"
@@ -645,6 +785,299 @@ function CloseRoundButton({ roundId }: { roundId: string }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Tarjeta de grupo (4 jugadores · 3 sets rotativos)                         */
+/* -------------------------------------------------------------------------- */
+
+export type RoundGroup = {
+  groupNumber: number
+  courtId: string | null
+  courtName: string | null
+  scheduledLabel: string | null
+  scheduledValue: string | null
+  matches: MatchItem[]
+}
+
+function GroupDetailsForm({
+  roundId,
+  group,
+  courts,
+  onDone,
+}: {
+  roundId: string
+  group: RoundGroup
+  courts: Option[]
+  onDone: () => void
+}) {
+  const boundAction = updateGroupDetails.bind(null, roundId, group.groupNumber)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+
+  useEffect(() => {
+    if (state.success) onDone()
+  }, [state.success, onDone])
+
+  return (
+    <form action={formAction} className="mt-3 border-t border-border pt-3">
+      {state.error && (
+        <p className="mb-2 text-xs text-destructive">{state.error}</p>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Horario
+          </label>
+          <input
+            name="scheduledAt"
+            type="datetime-local"
+            defaultValue={group.scheduledValue ?? ''}
+            className={cn(fieldCls, 'w-56')}
+            aria-invalid={!!state.fieldErrors?.scheduledAt}
+          />
+        </div>
+        <div>
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Cancha
+          </label>
+          <select
+            name="courtId"
+            defaultValue={group.courtId ?? ''}
+            disabled={courts.length === 0}
+            className={cn(fieldCls, 'w-56 appearance-none')}
+          >
+            <option value="">
+              {courts.length === 0
+                ? 'Sin canchas registradas'
+                : 'Sin cancha asignada'}
+            </option>
+            {courts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button
+          type="submit"
+          variant="outline"
+          className="h-9 gap-1.5 rounded-md px-4 text-sm"
+          disabled={pending}
+        >
+          <Save className="size-4" strokeWidth={2} />
+          {pending ? 'Guardando…' : 'Guardar'}
+        </Button>
+      </div>
+      <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+        Aplica el horario y la cancha a los 3 sets del grupo.
+      </p>
+    </form>
+  )
+}
+
+function GroupCard({
+  roundId,
+  group,
+  courts,
+}: {
+  roundId: string
+  group: RoundGroup
+  courts: Option[]
+}) {
+  const boundAction = captureGroupResults.bind(null, roundId)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+  const [editing, setEditing] = useState(false)
+  const [removing, startRemove] = useTransition()
+
+  const matches = [...group.matches].sort(
+    (a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0),
+  )
+  // Los 4 jugadores del grupo salen del primer set: A = [P1,P2], B = [P3,P4].
+  const first = matches[0]
+  const roster =
+    first && first.sideA.length + first.sideB.length === 4
+      ? [...first.sideA, ...first.sideB]
+      : [...new Set(matches.flatMap((m) => [...m.sideA, ...m.sideB]))]
+
+  // Reparto de juegos por jugador (de los sets ya guardados).
+  const gamesByPlayer = new Map<string, number>(roster.map((n) => [n, 0]))
+  for (const m of matches) {
+    for (const s of m.sets) {
+      for (const n of m.sideA)
+        gamesByPlayer.set(n, (gamesByPlayer.get(n) ?? 0) + s.gamesA)
+      for (const n of m.sideB)
+        gamesByPlayer.set(n, (gamesByPlayer.get(n) ?? 0) + s.gamesB)
+    }
+  }
+  const anyScores = matches.some((m) => m.sets.length > 0)
+
+  const remove = () => {
+    if (!confirm(`¿Eliminar el grupo ${group.groupNumber} y sus 3 sets?`)) return
+    startRemove(() => {
+      void deleteGroup(roundId, group.groupNumber)
+    })
+  }
+
+  // Remonta el formulario cuando cambian los resultados guardados, para que los
+  // inputs reflejen el estado persistido tras revalidar.
+  const formKey = matches
+    .map((m) => `${m.id}:${m.sets.map((s) => `${s.gamesA}-${s.gamesB}`).join(',')}`)
+    .join('|')
+
+  const pairLabel = (names: string[]) =>
+    names.length > 0 ? names.join(' / ') : '—'
+
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-border bg-card/30 p-4',
+        removing && 'opacity-50',
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="flex items-baseline gap-2">
+            <span className="font-serif text-xl tracking-tight text-foreground">
+              Grupo {group.groupNumber}
+            </span>
+            {group.groupNumber === 1 && (
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Más alto
+              </span>
+            )}
+          </h3>
+          <p className="mt-1 truncate text-sm text-muted-foreground">
+            {roster.join(' · ')}
+          </p>
+          <p className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            {group.scheduledLabel && (
+              <span className="normal-case tracking-normal">
+                {group.scheduledLabel}
+              </span>
+            )}
+            {group.courtName && (
+              <>
+                {group.scheduledLabel && (
+                  <span className="text-foreground/25">·</span>
+                )}
+                <span>{group.courtName}</span>
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            title="Editar horario y cancha del grupo"
+            className={cn(
+              'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+              editing && 'bg-muted text-foreground',
+            )}
+          >
+            <Clock className="size-4" strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={remove}
+            disabled={removing}
+            title="Eliminar grupo"
+            className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
+          >
+            <Trash2 className="size-4" strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+
+      {editing && (
+        <GroupDetailsForm
+          roundId={roundId}
+          group={group}
+          courts={courts}
+          onDone={() => setEditing(false)}
+        />
+      )}
+
+      <form key={formKey} action={formAction} className="mt-4 space-y-2">
+        {state.error && (
+          <p className="text-xs text-destructive">{state.error}</p>
+        )}
+        {matches.map((m) => {
+          const set = m.sets[0]
+          return (
+            <div
+              key={m.id}
+              className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-background/40 px-3 py-2"
+            >
+              <input type="hidden" name="matchId" value={m.id} />
+              <span className="flex size-7 shrink-0 items-center justify-center rounded border border-border font-mono text-[10px] text-muted-foreground tabular-nums">
+                S{m.intraGroupOrder ?? '?'}
+              </span>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span
+                  className={cn(
+                    'truncate text-sm text-foreground',
+                    m.winnerSide === 'A' && 'font-medium',
+                  )}
+                >
+                  {pairLabel(m.sideA)}
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                  vs
+                </span>
+                <span
+                  className={cn(
+                    'truncate text-sm text-foreground',
+                    m.winnerSide === 'B' && 'font-medium',
+                  )}
+                >
+                  {pairLabel(m.sideB)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  name="gamesA"
+                  type="number"
+                  min={0}
+                  max={99}
+                  defaultValue={set?.gamesA ?? ''}
+                  className={cn(fieldCls, 'w-14 text-center')}
+                />
+                <span className="text-muted-foreground">–</span>
+                <input
+                  name="gamesB"
+                  type="number"
+                  min={0}
+                  max={99}
+                  defaultValue={set?.gamesB ?? ''}
+                  className={cn(fieldCls, 'w-14 text-center')}
+                />
+              </div>
+            </div>
+          )
+        })}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            {anyScores
+              ? roster
+                  .map((n) => `${n.split(' ')[0]} ${gamesByPlayer.get(n) ?? 0}`)
+                  .join(' · ')
+              : 'Deja vacíos los sets no jugados. Los juegos se reparten por jugador.'}
+          </p>
+          <Button
+            type="submit"
+            variant="outline"
+            className="h-9 gap-1.5 rounded-md px-4 text-sm"
+            disabled={pending}
+          >
+            <Save className="size-4" strokeWidth={2} />
+            {pending ? 'Guardando…' : 'Guardar resultados'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Sección completa                                                          */
 /* -------------------------------------------------------------------------- */
 
@@ -653,6 +1086,7 @@ export function RoundMatches({
   players,
   courts,
   matches,
+  playKind,
   bestOfSets,
   defaultDateTime,
 }: {
@@ -660,9 +1094,42 @@ export function RoundMatches({
   players: Option[]
   courts: Option[]
   matches: MatchItem[]
+  playKind: 'individual' | 'pairs'
   bestOfSets: number
   defaultDateTime?: string
 }) {
+  const isIndividual = playKind === 'individual'
+
+  // En ligas individuales los partidos con grupo se muestran como tarjetas de
+  // grupo; el resto (sin grupo, o ligas de parejas) como filas sueltas.
+  const byGroup = new Map<number, MatchItem[]>()
+  const ungrouped: MatchItem[] = []
+  for (const m of matches) {
+    if (isIndividual && m.groupNumber != null) {
+      const list = byGroup.get(m.groupNumber) ?? []
+      list.push(m)
+      byGroup.set(m.groupNumber, list)
+    } else {
+      ungrouped.push(m)
+    }
+  }
+  const groups: RoundGroup[] = [...byGroup.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([groupNumber, ms]) => {
+      const lead =
+        [...ms].sort(
+          (a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0),
+        )[0] ?? ms[0]
+      return {
+        groupNumber,
+        courtId: lead.courtId,
+        courtName: lead.courtName,
+        scheduledLabel: lead.scheduledLabel,
+        scheduledValue: lead.scheduledValue,
+        matches: ms,
+      }
+    })
+
   return (
     <section className="space-y-5">
       {players.length < 2 ? (
@@ -674,13 +1141,24 @@ export function RoundMatches({
         </div>
       ) : (
         <>
-          {matches.length === 0 && <GenerateGroupsButton roundId={roundId} />}
-          <CreateMatchForm
-            roundId={roundId}
-            players={players}
-            courts={courts}
-            defaultDateTime={defaultDateTime}
-          />
+          {matches.length === 0 && isIndividual && (
+            <GenerateGroupsButton roundId={roundId} />
+          )}
+          {isIndividual ? (
+            <CreateGroupForm
+              roundId={roundId}
+              players={players}
+              courts={courts}
+              defaultDateTime={defaultDateTime}
+            />
+          ) : (
+            <CreateMatchForm
+              roundId={roundId}
+              players={players}
+              courts={courts}
+              defaultDateTime={defaultDateTime}
+            />
+          )}
         </>
       )}
 
@@ -692,16 +1170,36 @@ export function RoundMatches({
         </div>
       ) : (
         <>
-          <ul className="space-y-3">
-            {matches.map((match) => (
-              <MatchRow
-                key={match.id}
-                match={match}
-                bestOfSets={bestOfSets}
+          <div className="space-y-6">
+            {groups.map((g) => (
+              <GroupCard
+                key={g.groupNumber}
+                roundId={roundId}
+                group={g}
                 courts={courts}
               />
             ))}
-          </ul>
+
+            {ungrouped.length > 0 && (
+              <div>
+                {groups.length > 0 && (
+                  <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Sin grupo
+                  </h3>
+                )}
+                <ul className="space-y-3">
+                  {ungrouped.map((match) => (
+                    <MatchRow
+                      key={match.id}
+                      match={match}
+                      bestOfSets={bestOfSets}
+                      courts={courts}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
           <CloseRoundButton roundId={roundId} />
         </>
       )}

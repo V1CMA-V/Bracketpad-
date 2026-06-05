@@ -7,7 +7,6 @@ import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import {
   RoundMatches,
   type MatchItem,
-  type RoundGroup,
 } from '@/components/dashboard/round-matches'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
@@ -69,6 +68,7 @@ export default async function JornadaDetailPage({
         select: {
           id: true,
           name: true,
+          playKind: true,
           scoringConfig: { select: { bestOfSets: true } },
         },
       },
@@ -126,6 +126,7 @@ export default async function JornadaDetailPage({
       status: m.status,
       winnerSide: m.winnerSide,
       groupNumber: m.groupNumber ?? null,
+      intraGroupOrder: m.intraGroupOrder ?? null,
       courtId: m.courtId ?? null,
       courtName: m.court?.name ?? null,
       scheduledLabel: m.scheduledAt ? dateTimeFmt.format(m.scheduledAt) : null,
@@ -187,6 +188,7 @@ export default async function JornadaDetailPage({
             players={players}
             courts={courts}
             matches={matchItems}
+            playKind={round.league.playKind}
             bestOfSets={bestOfSets}
             defaultDateTime={defaultDateTime}
           />

@@ -1,9 +1,11 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import { LeagueRegistrations } from '@/components/dashboard/league-registrations'
+import { LeagueRounds } from '@/components/dashboard/league-rounds'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
+import { compareStandings } from '@/lib/standings'
 import {
   leagueFormatLabels,
   leagueStatusLabels,
@@ -119,7 +121,6 @@ export default async function LigaDetailPage({
         include: { _count: { select: { matches: true } } },
       },
       standings: {
-        orderBy: [{ setsFor: 'desc' }, { setsAgainst: 'asc' }],
         include: {
           registration: { include: { player: { select: { fullName: true } } } },
         },
@@ -148,6 +149,14 @@ export default async function LigaDetailPage({
   const tiebreakers = cfg
     ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
     : []
+
+  // Ranking ordenado aplicando los desempates configurados (lo que la barra
+  // lateral anuncia). Sin configuración, se usan desempates por defecto.
+  const rankingTiebreakers =
+    tiebreakers.length > 0 ? tiebreakers : ['set_diff', 'sets_won', 'game_diff']
+  const orderedStandings = [...league.standings].sort((a, b) =>
+    compareStandings(a, b, rankingTiebreakers),
+  )
 
   return (
     <>
@@ -222,44 +231,78 @@ export default async function LigaDetailPage({
                 </EmptyState>
               ) : (
                 <div className="mt-5 overflow-x-auto">
-                  <div className="min-w-[560px]">
-                    <div className="grid grid-cols-[36px_minmax(0,1fr)_56px_56px_72px_64px] items-center gap-4 border-b border-border px-3 pb-2.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                      <span>Pos</span>
-                      <span>Jugador</span>
-                      <span className="text-right">PJ</span>
-                      <span className="text-right">G-P</span>
-                      <span className="text-right">Sets</span>
-                      <span className="text-right">Dif</span>
-                    </div>
-                    <ul className="divide-y divide-border">
-                      {league.standings.map((s, i) => (
-                        <li
-                          key={s.registrationId}
-                          className="grid grid-cols-[36px_minmax(0,1fr)_56px_56px_72px_64px] items-center gap-4 px-3 py-3"
-                        >
-                          <span className="font-serif text-lg text-muted-foreground/70 tabular-nums">
-                            {i + 1}
-                          </span>
-                          <span className="truncate text-sm text-foreground">
-                            {s.registration.player.fullName}
-                          </span>
-                          <span className="text-right font-mono text-sm tabular-nums">
-                            {s.matchesPlayed}
-                          </span>
-                          <span className="text-right font-mono text-sm tabular-nums">
-                            {s.wins}-{s.losses}
-                          </span>
-                          <span className="text-right font-mono text-sm tabular-nums">
-                            {s.setsFor}-{s.setsAgainst}
-                          </span>
-                          <span className="text-right font-mono text-sm tabular-nums">
-                            {s.setsFor - s.setsAgainst > 0 ? '+' : ''}
-                            {s.setsFor - s.setsAgainst}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <table className="w-full min-w-[620px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-border font-mono text-[10px] uppercase tracking-widest text-muted-foreground [&>th]:px-3 [&>th]:pb-2.5 [&>th]:font-normal">
+                        <th className="w-10 text-left">Pos</th>
+                        <th className="text-left">Jugador</th>
+                        <th className="w-12 text-right">PJ</th>
+                        <th className="w-16 text-right">G-P</th>
+                        <th className="w-16 text-right">Sets</th>
+                        <th className="w-16 text-right">±Sets</th>
+                        <th className="w-16 text-right">±Jue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderedStandings.map((s, i) => {
+                        const setDiff = s.setsFor - s.setsAgainst
+                        const gameDiff = s.gamesFor - s.gamesAgainst
+                        const fmt = (n: number) => `${n > 0 ? '+' : ''}${n}`
+                        return (
+                          <tr
+                            key={s.registrationId}
+                            className={cn(
+                              'border-b border-border [&>td]:px-3 [&>td]:py-3',
+                              i === 0 && 'bg-forest/5',
+                            )}
+                          >
+                            <td
+                              className={cn(
+                                'font-serif text-lg tabular-nums',
+                                i === 0
+                                  ? 'text-forest'
+                                  : 'text-muted-foreground/70',
+                              )}
+                            >
+                              {i + 1}
+                            </td>
+                            <td
+                              className={cn(
+                                'max-w-0 truncate text-foreground',
+                                i === 0 && 'font-medium',
+                              )}
+                            >
+                              {s.registration.player.fullName}
+                            </td>
+                            <td className="text-right font-mono text-muted-foreground tabular-nums">
+                              {s.matchesPlayed}
+                            </td>
+                            <td className="text-right font-mono tabular-nums">
+                              {s.wins}-{s.losses}
+                            </td>
+                            <td className="text-right font-mono tabular-nums">
+                              {s.setsFor}-{s.setsAgainst}
+                            </td>
+                            <td
+                              className={cn(
+                                'text-right font-mono tabular-nums',
+                                setDiff > 0
+                                  ? 'text-forest'
+                                  : setDiff < 0
+                                    ? 'text-terracotta'
+                                    : 'text-muted-foreground',
+                              )}
+                            >
+                              {fmt(setDiff)}
+                            </td>
+                            <td className="text-right font-mono text-muted-foreground tabular-nums">
+                              {fmt(gameDiff)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>
@@ -278,46 +321,18 @@ export default async function LigaDetailPage({
             />
 
             {/* Jornadas */}
-            <section>
-              <ModuleHeader
-                eyebrow="Calendario"
-                title="Jornadas"
-                aside={`${league._count.rounds} jornadas`}
-              />
-              {league.rounds.length === 0 ? (
-                <EmptyState>
-                  No hay jornadas creadas. Genera el calendario para empezar a
-                  programar partidos.
-                </EmptyState>
-              ) : (
-                <ul className="mt-5 divide-y divide-border">
-                  {league.rounds.map((round) => (
-                    <li
-                      key={round.id}
-                      className="flex items-center gap-4 px-3 py-3"
-                    >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border font-mono text-xs text-muted-foreground">
-                        J{round.roundNumber}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-foreground">
-                          {round.name ?? `Jornada ${round.roundNumber}`}
-                        </p>
-                        <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                          {round.scheduledDate
-                            ? dateFmt.format(round.scheduledDate)
-                            : 'Sin fecha'}
-                        </p>
-                      </div>
-                      <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                        {round._count.matches}{' '}
-                        {round._count.matches === 1 ? 'partido' : 'partidos'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            <LeagueRounds
+              leagueId={league.id}
+              rounds={league.rounds.map((round) => ({
+                id: round.id,
+                roundNumber: round.roundNumber,
+                name: round.name,
+                dateLabel: round.scheduledDate
+                  ? dateFmt.format(round.scheduledDate)
+                  : 'Sin fecha',
+                matchCount: round._count.matches,
+              }))}
+            />
           </div>
 
           {/* Columna lateral */}

@@ -1,5 +1,57 @@
 import { prisma } from '@/lib/prisma'
 
+/* -------------------------------------------------------------------------- */
+/*  Orden de la clasificación                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** Campos mínimos necesarios para ordenar una fila de clasificación. */
+export type RankableStanding = {
+  wins: number
+  losses: number
+  setsFor: number
+  setsAgainst: number
+  gamesFor: number
+  gamesAgainst: number
+}
+
+/** Valor numérico (mayor = mejor) de un criterio de desempate. */
+function tiebreakerValue(s: RankableStanding, criterion: string): number {
+  switch (criterion) {
+    case 'set_diff':
+      return s.setsFor - s.setsAgainst
+    case 'sets_won':
+      return s.setsFor
+    case 'game_diff':
+      return s.gamesFor - s.gamesAgainst
+    case 'games_won':
+      return s.gamesFor
+    // `head_to_head` requiere cruzar partidos entre ambos jugadores; no se
+    // resuelve a nivel de fila, así que aquí no desempata.
+    default:
+      return 0
+  }
+}
+
+/**
+ * Comparador de clasificación. Criterio principal: **sets ganados** (decisión
+ * de diseño de la liga, no por puntos de victoria). Los empates se rompen con
+ * los desempates configurados (`tiebreaker1..3`), en orden, y como último
+ * recurso por victorias y menos derrotas.
+ */
+export function compareStandings(
+  a: RankableStanding,
+  b: RankableStanding,
+  tiebreakers: string[],
+): number {
+  if (b.setsFor !== a.setsFor) return b.setsFor - a.setsFor
+  for (const t of tiebreakers) {
+    const diff = tiebreakerValue(b, t) - tiebreakerValue(a, t)
+    if (diff !== 0) return diff
+  }
+  if (b.wins !== a.wins) return b.wins - a.wins
+  return a.losses - b.losses
+}
+
 type Acc = {
   registrationId: string
   matchesPlayed: number

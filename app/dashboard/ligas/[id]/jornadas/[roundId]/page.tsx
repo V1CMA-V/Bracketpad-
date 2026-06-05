@@ -15,6 +15,25 @@ const dateFmt = new Intl.DateTimeFormat('es', {
   year: 'numeric',
 })
 
+const dateTimeFmt = new Intl.DateTimeFormat('es', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/**
+ * Convierte un `Date` al formato de `<input type="datetime-local">`
+ * (`YYYY-MM-DDTHH:MM`) usando la hora local del servidor, igual que se
+ * interpretó al guardarlo, para que el valor haga ida y vuelta sin desfase.
+ */
+function toDateTimeLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(
+    d.getHours(),
+  )}:${p(d.getMinutes())}`
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -96,7 +115,10 @@ export default async function JornadaDetailPage({
       id: m.id,
       status: m.status,
       winnerSide: m.winnerSide,
+      courtId: m.courtId ?? null,
       courtName: m.court?.name ?? null,
+      scheduledLabel: m.scheduledAt ? dateTimeFmt.format(m.scheduledAt) : null,
+      scheduledValue: m.scheduledAt ? toDateTimeLocal(m.scheduledAt) : null,
       sideA: side('A'),
       sideB: side('B'),
       sets: m.sets.map((s) => ({ gamesA: s.gamesA, gamesB: s.gamesB })),
@@ -105,6 +127,12 @@ export default async function JornadaDetailPage({
 
   const bestOfSets = round.league.scoringConfig?.bestOfSets ?? 3
   const roundLabel = round.name ?? `Jornada ${round.roundNumber}`
+
+  // Prefija el día de la jornada en el campo de horario (12:00 por defecto),
+  // para que solo haya que ajustar la hora.
+  const defaultDateTime = round.scheduledDate
+    ? `${round.scheduledDate.toISOString().slice(0, 10)}T12:00`
+    : undefined
 
   return (
     <>
@@ -149,6 +177,7 @@ export default async function JornadaDetailPage({
             courts={courts}
             matches={matchItems}
             bestOfSets={bestOfSets}
+            defaultDateTime={defaultDateTime}
           />
         </div>
       </div>

@@ -196,29 +196,33 @@ export function LeagueRegistrations({
               </p>
             )}
           </div>
-          <input
-            name="division"
-            type="text"
-            placeholder="División"
-            className={cn(fieldCls, 'sm:w-28')}
-            aria-invalid={!!state.fieldErrors?.division}
-          />
-          <input
-            name="seed"
-            type="number"
-            min={1}
-            placeholder="Cab."
-            className={cn(fieldCls, 'sm:w-20')}
-            aria-invalid={!!state.fieldErrors?.seed}
-          />
-          <Button
-            type="submit"
-            className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
-            disabled={pending}
-          >
-            <Plus className="size-4" strokeWidth={2} />
-            {pending ? 'Inscribiendo…' : 'Inscribir'}
-          </Button>
+          {/* Ancho fijo: cn() deja que tailwind-merge elimine el `w-full` de
+              fieldCls, así estos campos no aplastan al de nombre. */}
+          <div className="flex shrink-0 flex-wrap gap-3">
+            <input
+              name="division"
+              type="text"
+              placeholder="División"
+              className={cn(fieldCls, 'w-32')}
+              aria-invalid={!!state.fieldErrors?.division}
+            />
+            <input
+              name="seed"
+              type="number"
+              min={1}
+              placeholder="Cab."
+              className={cn(fieldCls, 'w-20')}
+              aria-invalid={!!state.fieldErrors?.seed}
+            />
+            <Button
+              type="submit"
+              className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
+              disabled={pending}
+            >
+              <Plus className="size-4" strokeWidth={2} />
+              {pending ? 'Inscribiendo…' : 'Inscribir'}
+            </Button>
+          </div>
         </div>
         <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
           Se reutiliza el jugador si ya existe en el club; si no, se crea.

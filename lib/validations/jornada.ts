@@ -11,6 +11,12 @@ export const createRoundSchema = z.object({
 
 export const createMatchSchema = z.object({
   courtId: z.string().trim().optional(),
+  // Formato de <input type="datetime-local">: YYYY-MM-DDTHH:MM
+  scheduledAt: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Fecha y hora inválidas.')
+    .optional(),
   a1: z.string().trim().min(1, 'Selecciona al menos un jugador para el lado A.'),
   a2: z.string().trim().optional(),
   b1: z.string().trim().min(1, 'Selecciona al menos un jugador para el lado B.'),

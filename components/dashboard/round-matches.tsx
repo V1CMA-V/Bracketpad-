@@ -1,7 +1,7 @@
 'use client'
 
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react'
-import { Plus, Save, Trash2 } from 'lucide-react'
+import { Clock, Plus, Save, Trash2 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import {
   captureMatchResult,
   createMatch,
   deleteMatch,
+  updateMatchSchedule,
   type MatchState,
 } from '@/app/dashboard/ligas/[id]/jornadas/[roundId]/actions'
 
@@ -23,7 +24,10 @@ export type MatchItem = {
   id: string
   status: string
   winnerSide: 'A' | 'B' | null
+  courtId: string | null
   courtName: string | null
+  scheduledLabel: string | null
+  scheduledValue: string | null
   sideA: string[]
   sideB: string[]
   sets: { gamesA: number; gamesB: number }[]
@@ -82,10 +86,12 @@ function CreateMatchForm({
   roundId,
   players,
   courts,
+  defaultDateTime,
 }: {
   roundId: string
   players: Option[]
   courts: Option[]
+  defaultDateTime?: string
 }) {
   const boundAction = createMatch.bind(null, roundId)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
@@ -157,29 +163,51 @@ function CreateMatchForm({
       </div>
 
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="sm:flex-1">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Horario
+          </label>
+          <input
+            name="scheduledAt"
+            type="datetime-local"
+            defaultValue={defaultDateTime}
+            className={cn(fieldCls, 'w-full')}
+            aria-invalid={!!state.fieldErrors?.scheduledAt}
+          />
+        </div>
         {courts.length > 0 && (
-          <select
-            name="courtId"
-            defaultValue=""
-            className={cn(fieldCls, 'appearance-none sm:w-56')}
-          >
-            <option value="">Sin cancha asignada</option>
-            {courts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <div className="sm:flex-1">
+            <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Cancha
+            </label>
+            <select
+              name="courtId"
+              defaultValue=""
+              className={cn(fieldCls, 'w-full appearance-none')}
+            >
+              <option value="">Sin cancha asignada</option>
+              {courts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
         <Button
           type="submit"
-          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm sm:ml-auto"
+          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm sm:mt-[22px]"
           disabled={pending}
         >
           <Plus className="size-4" strokeWidth={2} />
           {pending ? 'Creando…' : 'Crear partido'}
         </Button>
       </div>
+      {state.fieldErrors?.scheduledAt?.[0] && (
+        <p className="mt-1.5 text-xs text-destructive">
+          {state.fieldErrors.scheduledAt[0]}
+        </p>
+      )}
     </form>
   )
 }
@@ -258,19 +286,107 @@ function ResultForm({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Editar horario                                                            */
+/* -------------------------------------------------------------------------- */
+
+function ScheduleForm({
+  matchId,
+  value,
+  courts,
+  currentCourtId,
+  onDone,
+}: {
+  matchId: string
+  value: string | null
+  courts: Option[]
+  currentCourtId: string | null
+  onDone: () => void
+}) {
+  const boundAction = updateMatchSchedule.bind(null, matchId)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+
+  useEffect(() => {
+    if (state.success) onDone()
+  }, [state.success, onDone])
+
+  return (
+    <form action={formAction} className="mt-3 border-t border-border pt-3">
+      {state.error && (
+        <p className="mb-2 text-xs text-destructive">{state.error}</p>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Horario
+          </label>
+          <input
+            name="scheduledAt"
+            type="datetime-local"
+            defaultValue={value ?? ''}
+            className={cn(fieldCls, 'w-56')}
+            aria-invalid={!!state.fieldErrors?.scheduledAt}
+          />
+        </div>
+        {courts.length > 0 && (
+          <div>
+            <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Cancha
+            </label>
+            <select
+              name="courtId"
+              defaultValue={currentCourtId ?? ''}
+              className={cn(fieldCls, 'w-56 appearance-none')}
+            >
+              <option value="">Sin cancha asignada</option>
+              {courts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <Button
+          type="submit"
+          variant="outline"
+          className="h-9 gap-1.5 rounded-md px-4 text-sm"
+          disabled={pending}
+        >
+          <Save className="size-4" strokeWidth={2} />
+          {pending ? 'Guardando…' : 'Guardar'}
+        </Button>
+      </div>
+      {state.fieldErrors?.scheduledAt?.[0] && (
+        <p className="mt-1.5 text-xs text-destructive">
+          {state.fieldErrors.scheduledAt[0]}
+        </p>
+      )}
+      <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+        Deja el horario vacío para quitarlo.
+      </p>
+    </form>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Fila de partido                                                           */
 /* -------------------------------------------------------------------------- */
 
 function MatchRow({
   match,
   bestOfSets,
+  courts,
 }: {
   match: MatchItem
   bestOfSets: number
+  courts: Option[]
 }) {
-  const [editing, setEditing] = useState(false)
+  const [panel, setPanel] = useState<'none' | 'result' | 'schedule'>('none')
   const [pending, startTransition] = useTransition()
   const finished = match.status === 'finished'
+
+  const toggle = (which: 'result' | 'schedule') =>
+    setPanel((p) => (p === which ? 'none' : which))
 
   const remove = () => {
     if (!confirm('¿Eliminar este partido?')) return
@@ -318,6 +434,14 @@ function MatchRow({
           </div>
           <p className="mt-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             <span>{statusLabels[match.status] ?? match.status}</span>
+            {match.scheduledLabel && (
+              <>
+                <span className="text-foreground/25">·</span>
+                <span className="normal-case tracking-normal">
+                  {match.scheduledLabel}
+                </span>
+              </>
+            )}
             {match.courtName && (
               <>
                 <span className="text-foreground/25">·</span>
@@ -340,10 +464,24 @@ function MatchRow({
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
-            className="h-8 rounded-md border border-border px-3 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => toggle('schedule')}
+            title="Editar horario"
+            className={cn(
+              'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+              panel === 'schedule' && 'bg-muted text-foreground',
+            )}
           >
-            {editing ? 'Cerrar' : finished ? 'Editar' : 'Resultado'}
+            <Clock className="size-4" strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={() => toggle('result')}
+            className={cn(
+              'h-8 rounded-md border border-border px-3 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+              panel === 'result' && 'bg-muted text-foreground',
+            )}
+          >
+            {panel === 'result' ? 'Cerrar' : finished ? 'Editar' : 'Resultado'}
           </button>
           <button
             type="button"
@@ -357,12 +495,21 @@ function MatchRow({
         </div>
       </div>
 
-      {editing && (
+      {panel === 'result' && (
         <ResultForm
           matchId={match.id}
           bestOfSets={bestOfSets}
           sets={match.sets}
-          onDone={() => setEditing(false)}
+          onDone={() => setPanel('none')}
+        />
+      )}
+      {panel === 'schedule' && (
+        <ScheduleForm
+          matchId={match.id}
+          value={match.scheduledValue}
+          courts={courts}
+          currentCourtId={match.courtId}
+          onDone={() => setPanel('none')}
         />
       )}
     </li>
@@ -379,12 +526,14 @@ export function RoundMatches({
   courts,
   matches,
   bestOfSets,
+  defaultDateTime,
 }: {
   roundId: string
   players: Option[]
   courts: Option[]
   matches: MatchItem[]
   bestOfSets: number
+  defaultDateTime?: string
 }) {
   return (
     <section className="space-y-5">
@@ -396,7 +545,12 @@ export function RoundMatches({
           </p>
         </div>
       ) : (
-        <CreateMatchForm roundId={roundId} players={players} courts={courts} />
+        <CreateMatchForm
+          roundId={roundId}
+          players={players}
+          courts={courts}
+          defaultDateTime={defaultDateTime}
+        />
       )}
 
       {matches.length === 0 ? (
@@ -408,7 +562,12 @@ export function RoundMatches({
       ) : (
         <ul className="space-y-3">
           {matches.map((match) => (
-            <MatchRow key={match.id} match={match} bestOfSets={bestOfSets} />
+            <MatchRow
+              key={match.id}
+              match={match}
+              bestOfSets={bestOfSets}
+              courts={courts}
+            />
           ))}
         </ul>
       )}

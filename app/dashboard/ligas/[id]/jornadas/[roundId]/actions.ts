@@ -11,7 +11,7 @@ import { recomputeStandings } from '@/lib/standings'
 export type MatchState = {
   success?: boolean
   error?: string
-  fieldErrors?: Partial<Record<'a1' | 'b1', string[]>>
+  fieldErrors?: Partial<Record<'a1' | 'b1' | 'scheduledAt', string[]>>
 }
 
 function revalidateRound(leagueId: string, roundId: string | null) {
@@ -41,6 +41,7 @@ export async function createMatch(
 
   const parsed = createMatchSchema.safeParse({
     courtId: (formData.get('courtId') as string) || undefined,
+    scheduledAt: (formData.get('scheduledAt') as string) || undefined,
     a1: formData.get('a1'),
     a2: (formData.get('a2') as string) || undefined,
     b1: formData.get('b1'),
@@ -50,7 +51,7 @@ export async function createMatch(
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
   }
 
-  const { courtId, a1, a2, b1, b2 } = parsed.data
+  const { courtId, scheduledAt, a1, a2, b1, b2 } = parsed.data
   const playerIds = [a1, a2, b1, b2].filter((x): x is string => !!x)
 
   if (new Set(playerIds).size !== playerIds.length) {
@@ -84,6 +85,9 @@ export async function createMatch(
       leagueId: round.leagueId,
       leagueRoundId: round.id,
       courtId: courtId || null,
+      // datetime-local no lleva zona horaria; se interpreta en la hora del
+      // servidor. Suficiente para programar partidos de la jornada.
+      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       status: 'scheduled',
       sides: {
         create: [
@@ -95,6 +99,52 @@ export async function createMatch(
   })
 
   revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editar horario                                                            */
+/* -------------------------------------------------------------------------- */
+
+export async function updateMatchSchedule(
+  matchId: string,
+  _prevState: MatchState,
+  formData: FormData,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const match = await prisma.match.findFirst({
+    where: { id: matchId, clubId: club.id, contextType: 'league' },
+    select: { id: true, leagueId: true, leagueRoundId: true },
+  })
+  if (!match) return { error: 'Partido no encontrado.' }
+
+  // Campo vacío = quitar el horario.
+  const raw = ((formData.get('scheduledAt') as string) || '').trim()
+  if (raw && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) {
+    return { fieldErrors: { scheduledAt: ['Fecha y hora inválidas.'] } }
+  }
+
+  // Cancha (opcional). Vacío = sin cancha. Debe pertenecer al club.
+  const rawCourt = ((formData.get('courtId') as string) || '').trim()
+  if (rawCourt) {
+    const court = await prisma.court.findFirst({
+      where: { id: rawCourt, clubId: club.id },
+      select: { id: true },
+    })
+    if (!court) return { error: 'Cancha no válida.' }
+  }
+
+  await prisma.match.update({
+    where: { id: matchId },
+    data: {
+      scheduledAt: raw ? new Date(raw) : null,
+      courtId: rawCourt || null,
+    },
+  })
+
+  if (match.leagueId) revalidateRound(match.leagueId, match.leagueRoundId)
   return { success: true }
 }
 

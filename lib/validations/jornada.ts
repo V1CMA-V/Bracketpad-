@@ -11,6 +11,13 @@ export const createRoundSchema = z.object({
 
 export const createMatchSchema = z.object({
   courtId: z.string().trim().optional(),
+  // Grupo/nivel del partido: 1 = mejores, números mayores = niveles inferiores.
+  groupNumber: z.coerce
+    .number()
+    .int('El grupo debe ser un número entero.')
+    .min(1, 'El grupo debe ser 1 o mayor.')
+    .max(99, 'Grupo demasiado alto.')
+    .optional(),
   // Formato de <input type="datetime-local">: YYYY-MM-DDTHH:MM
   scheduledAt: z
     .string()

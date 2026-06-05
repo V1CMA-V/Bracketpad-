@@ -1,7 +1,7 @@
 'use client'
 
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react'
-import { Clock, Plus, Save, Trash2 } from 'lucide-react'
+import { Clock, Plus, Save, Trash2, Wand2 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,8 @@ import {
   captureMatchResult,
   createMatch,
   deleteMatch,
-  updateMatchSchedule,
+  generateGroupsFromStandings,
+  updateMatchDetails,
   type MatchState,
 } from '@/app/dashboard/ligas/[id]/jornadas/[roundId]/actions'
 
@@ -24,6 +25,7 @@ export type MatchItem = {
   id: string
   status: string
   winnerSide: 'A' | 'B' | null
+  groupNumber: number | null
   courtId: string | null
   courtName: string | null
   scheduledLabel: string | null
@@ -162,7 +164,21 @@ function CreateMatchForm({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="sm:w-24">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Grupo
+          </label>
+          <input
+            name="groupNumber"
+            type="number"
+            min={1}
+            max={99}
+            placeholder="1"
+            className={cn(fieldCls, 'w-full')}
+            aria-invalid={!!state.fieldErrors?.groupNumber}
+          />
+        </div>
         <div className="sm:flex-1">
           <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             Horario
@@ -196,16 +212,18 @@ function CreateMatchForm({
         )}
         <Button
           type="submit"
-          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm sm:mt-[22px]"
+          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
           disabled={pending}
         >
           <Plus className="size-4" strokeWidth={2} />
           {pending ? 'Creando…' : 'Crear partido'}
         </Button>
       </div>
-      {state.fieldErrors?.scheduledAt?.[0] && (
+      {(state.fieldErrors?.groupNumber?.[0] ||
+        state.fieldErrors?.scheduledAt?.[0]) && (
         <p className="mt-1.5 text-xs text-destructive">
-          {state.fieldErrors.scheduledAt[0]}
+          {state.fieldErrors?.groupNumber?.[0] ??
+            state.fieldErrors?.scheduledAt?.[0]}
         </p>
       )}
     </form>
@@ -286,23 +304,25 @@ function ResultForm({
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Editar horario                                                            */
+/*  Editar partido (horario, grupo, cancha)                                   */
 /* -------------------------------------------------------------------------- */
 
-function ScheduleForm({
+function MatchDetailsForm({
   matchId,
   value,
+  currentGroupNumber,
   courts,
   currentCourtId,
   onDone,
 }: {
   matchId: string
   value: string | null
+  currentGroupNumber: number | null
   courts: Option[]
   currentCourtId: string | null
   onDone: () => void
 }) {
-  const boundAction = updateMatchSchedule.bind(null, matchId)
+  const boundAction = updateMatchDetails.bind(null, matchId)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
 
   useEffect(() => {
@@ -315,6 +335,21 @@ function ScheduleForm({
         <p className="mb-2 text-xs text-destructive">{state.error}</p>
       )}
       <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Grupo
+          </label>
+          <input
+            name="groupNumber"
+            type="number"
+            min={1}
+            max={99}
+            placeholder="—"
+            defaultValue={currentGroupNumber ?? ''}
+            className={cn(fieldCls, 'w-20')}
+            aria-invalid={!!state.fieldErrors?.groupNumber}
+          />
+        </div>
         <div>
           <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             Horario
@@ -356,13 +391,15 @@ function ScheduleForm({
           {pending ? 'Guardando…' : 'Guardar'}
         </Button>
       </div>
-      {state.fieldErrors?.scheduledAt?.[0] && (
+      {(state.fieldErrors?.groupNumber?.[0] ||
+        state.fieldErrors?.scheduledAt?.[0]) && (
         <p className="mt-1.5 text-xs text-destructive">
-          {state.fieldErrors.scheduledAt[0]}
+          {state.fieldErrors?.groupNumber?.[0] ??
+            state.fieldErrors?.scheduledAt?.[0]}
         </p>
       )}
       <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-        Deja el horario vacío para quitarlo.
+        Deja un campo vacío para quitar su valor.
       </p>
     </form>
   )
@@ -406,6 +443,14 @@ function MatchRow({
       )}
     >
       <div className="flex items-start gap-4">
+        {match.groupNumber != null && (
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border font-mono text-xs text-muted-foreground tabular-nums"
+            title={`Grupo ${match.groupNumber}`}
+          >
+            G{match.groupNumber}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-3">
             <p
@@ -465,7 +510,7 @@ function MatchRow({
           <button
             type="button"
             onClick={() => toggle('schedule')}
-            title="Editar horario"
+            title="Editar grupo, horario y cancha"
             className={cn(
               'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
               panel === 'schedule' && 'bg-muted text-foreground',
@@ -504,15 +549,55 @@ function MatchRow({
         />
       )}
       {panel === 'schedule' && (
-        <ScheduleForm
+        <MatchDetailsForm
           matchId={match.id}
           value={match.scheduledValue}
+          currentGroupNumber={match.groupNumber}
           courts={courts}
           currentCourtId={match.courtId}
           onDone={() => setPanel('none')}
         />
       )}
     </li>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Autogenerar grupos                                                        */
+/* -------------------------------------------------------------------------- */
+
+function GenerateGroupsButton({ roundId }: { roundId: string }) {
+  const boundAction = generateGroupsFromStandings.bind(null, roundId)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+
+  return (
+    <form
+      action={formAction}
+      className="rounded-xl border border-dashed border-border bg-card/50 p-4"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-foreground">
+            Autogenerar partidos por clasificación
+          </p>
+          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            Grupos de 4 · grupo 1 = mejores de la liga
+          </p>
+        </div>
+        <Button
+          type="submit"
+          variant="outline"
+          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
+          disabled={pending}
+        >
+          <Wand2 className="size-4" strokeWidth={2} />
+          {pending ? 'Generando…' : 'Generar grupos'}
+        </Button>
+      </div>
+      {state.error && (
+        <p className="mt-2 text-xs text-destructive">{state.error}</p>
+      )}
+    </form>
   )
 }
 
@@ -545,12 +630,15 @@ export function RoundMatches({
           </p>
         </div>
       ) : (
-        <CreateMatchForm
-          roundId={roundId}
-          players={players}
-          courts={courts}
-          defaultDateTime={defaultDateTime}
-        />
+        <>
+          {matches.length === 0 && <GenerateGroupsButton roundId={roundId} />}
+          <CreateMatchForm
+            roundId={roundId}
+            players={players}
+            courts={courts}
+            defaultDateTime={defaultDateTime}
+          />
+        </>
       )}
 
       {matches.length === 0 ? (

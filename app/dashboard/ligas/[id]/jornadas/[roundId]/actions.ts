@@ -1,17 +1,21 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
+import { Prisma } from '@/generated/client'
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
 import { createMatchSchema } from '@/lib/validations/jornada'
-import { recomputeStandings } from '@/lib/standings'
+import { compareStandings, recomputeStandings } from '@/lib/standings'
 
 export type MatchState = {
   success?: boolean
   error?: string
-  fieldErrors?: Partial<Record<'a1' | 'b1' | 'scheduledAt', string[]>>
+  fieldErrors?: Partial<
+    Record<'a1' | 'b1' | 'scheduledAt' | 'groupNumber', string[]>
+  >
 }
 
 function revalidateRound(leagueId: string, roundId: string | null) {
@@ -41,6 +45,7 @@ export async function createMatch(
 
   const parsed = createMatchSchema.safeParse({
     courtId: (formData.get('courtId') as string) || undefined,
+    groupNumber: (formData.get('groupNumber') as string) || undefined,
     scheduledAt: (formData.get('scheduledAt') as string) || undefined,
     a1: formData.get('a1'),
     a2: (formData.get('a2') as string) || undefined,
@@ -51,7 +56,7 @@ export async function createMatch(
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
   }
 
-  const { courtId, scheduledAt, a1, a2, b1, b2 } = parsed.data
+  const { courtId, groupNumber, scheduledAt, a1, a2, b1, b2 } = parsed.data
   const playerIds = [a1, a2, b1, b2].filter((x): x is string => !!x)
 
   if (new Set(playerIds).size !== playerIds.length) {
@@ -85,6 +90,7 @@ export async function createMatch(
       leagueId: round.leagueId,
       leagueRoundId: round.id,
       courtId: courtId || null,
+      groupNumber: groupNumber ?? null,
       // datetime-local no lleva zona horaria; se interpreta en la hora del
       // servidor. Suficiente para programar partidos de la jornada.
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
@@ -103,10 +109,159 @@ export async function createMatch(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Editar horario                                                            */
+/*  Autogenerar grupos desde la clasificación                                 */
 /* -------------------------------------------------------------------------- */
 
-export async function updateMatchSchedule(
+/** Empareja un grupo (en orden de ranking) en dos lados equilibrados. */
+function pairGroup(g: string[]): { a: string[]; b: string[] } {
+  // 1º+4º vs 2º+3º para equilibrar; parciales reparten lo que haya.
+  if (g.length >= 4) return { a: [g[0], g[3]], b: [g[1], g[2]] }
+  if (g.length === 3) return { a: [g[0], g[2]], b: [g[1]] }
+  return { a: [g[0]], b: [g[1]] } // length 2
+}
+
+// `useActionState` invoca la acción con (prevState, formData); aquí no se
+// necesitan, así que se omiten (una función con menos parámetros es válida).
+export async function generateGroupsFromStandings(
+  roundId: string,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: {
+      id: true,
+      leagueId: true,
+      league: {
+        select: {
+          scoringConfig: {
+            select: {
+              tiebreaker1: true,
+              tiebreaker2: true,
+              tiebreaker3: true,
+            },
+          },
+        },
+      },
+      _count: { select: { matches: true } },
+    },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round._count.matches > 0) {
+    return {
+      error:
+        'La jornada ya tiene partidos. Elimínalos antes de autogenerar los grupos.',
+    }
+  }
+
+  // Jugadores activos. El orden base (semilla, luego nombre) sirve de desempate
+  // estable cuando aún no hay clasificación (p. ej. la primera jornada).
+  const regs = await prisma.leagueRegistration.findMany({
+    where: { leagueId: round.leagueId, status: 'active' },
+    orderBy: [{ seed: 'asc' }, { player: { fullName: 'asc' } }],
+    select: {
+      player: { select: { id: true } },
+      standing: {
+        select: {
+          wins: true,
+          losses: true,
+          setsFor: true,
+          setsAgainst: true,
+          gamesFor: true,
+          gamesAgainst: true,
+        },
+      },
+    },
+  })
+
+  if (regs.length < 2) {
+    return {
+      error: 'Necesitas al menos 2 jugadores activos para generar grupos.',
+    }
+  }
+
+  const cfg = round.league.scoringConfig
+  const tiebreakers = cfg
+    ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
+    : ['set_diff', 'sets_won', 'game_diff']
+
+  const zero = {
+    wins: 0,
+    losses: 0,
+    setsFor: 0,
+    setsAgainst: 0,
+    gamesFor: 0,
+    gamesAgainst: 0,
+  }
+
+  // Orden por clasificación (mejor → peor), mismo criterio que la tabla.
+  const playerIds = regs
+    .map((r) => ({ playerId: r.player.id, s: r.standing ?? zero }))
+    .sort((a, b) => compareStandings(a.s, b.s, tiebreakers))
+    .map((r) => r.playerId)
+
+  // Grupos de 4 en orden de ranking: grupo 1 = mejores.
+  const groups: string[][] = []
+  for (let i = 0; i < playerIds.length; i += 4) {
+    groups.push(playerIds.slice(i, i + 4))
+  }
+
+  const formable = groups.filter((g) => g.length >= 2) // un suelto descansa
+  if (formable.length === 0) {
+    return { error: 'No hay suficientes jugadores para formar un grupo.' }
+  }
+
+  // Pre-generamos los UUID y agrupamos en 3 `createMany` (3 viajes a la BD) en
+  // lugar de decenas de inserts anidados: así no se agota el tiempo de la
+  // transacción sobre el pooler de Supabase.
+  const matchesData: Prisma.MatchCreateManyInput[] = []
+  const sidesData: Prisma.MatchSideCreateManyInput[] = []
+  const playersData: Prisma.MatchSidePlayerCreateManyInput[] = []
+
+  formable.forEach((g, idx) => {
+    const matchId = randomUUID()
+    matchesData.push({
+      id: matchId,
+      clubId: club.id,
+      contextType: 'league',
+      leagueId: round.leagueId,
+      leagueRoundId: round.id,
+      groupNumber: idx + 1,
+      status: 'scheduled',
+    })
+
+    const { a, b } = pairGroup(g)
+    for (const { side, ids } of [
+      { side: 'A' as const, ids: a },
+      { side: 'B' as const, ids: b },
+    ]) {
+      const sideId = randomUUID()
+      sidesData.push({ id: sideId, matchId, side })
+      for (const playerId of ids) {
+        playersData.push({ matchSideId: sideId, playerId })
+      }
+    }
+  })
+
+  await prisma.$transaction(
+    [
+      prisma.match.createMany({ data: matchesData }),
+      prisma.matchSide.createMany({ data: sidesData }),
+      prisma.matchSidePlayer.createMany({ data: playersData }),
+    ],
+    { timeout: 15000 },
+  )
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editar partido (horario, cancha, grupo)                                   */
+/* -------------------------------------------------------------------------- */
+
+export async function updateMatchDetails(
   matchId: string,
   _prevState: MatchState,
   formData: FormData,
@@ -126,6 +281,17 @@ export async function updateMatchSchedule(
     return { fieldErrors: { scheduledAt: ['Fecha y hora inválidas.'] } }
   }
 
+  // Grupo (opcional). Vacío = sin grupo.
+  const rawGroup = ((formData.get('groupNumber') as string) || '').trim()
+  let groupNumber: number | null = null
+  if (rawGroup) {
+    const n = Number(rawGroup)
+    if (!Number.isInteger(n) || n < 1 || n > 99) {
+      return { fieldErrors: { groupNumber: ['Grupo inválido (1–99).'] } }
+    }
+    groupNumber = n
+  }
+
   // Cancha (opcional). Vacío = sin cancha. Debe pertenecer al club.
   const rawCourt = ((formData.get('courtId') as string) || '').trim()
   if (rawCourt) {
@@ -140,6 +306,7 @@ export async function updateMatchSchedule(
     where: { id: matchId },
     data: {
       scheduledAt: raw ? new Date(raw) : null,
+      groupNumber,
       courtId: rawCourt || null,
     },
   })

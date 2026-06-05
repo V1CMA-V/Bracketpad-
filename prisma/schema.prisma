@@ -429,6 +429,10 @@ model Match {
   categoryId   String?
   bracketRound String?
 
+  // En ligas: grupo/nivel del partido. 1 = mejores, números mayores = niveles
+  // inferiores. Ordena los partidos dentro de una jornada.
+  groupNumber Int? @db.SmallInt
+
   courtId     String?
   scheduledAt DateTime?
   status      MatchStatus @default(scheduled)
@@ -446,6 +450,7 @@ model Match {
   @@index([leagueId])
   @@index([categoryId])
   @@index([clubId, scheduledAt])
+  @@index([leagueRoundId, groupNumber])
   @@map("match")
 }
 

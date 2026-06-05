@@ -85,7 +85,8 @@ export default async function JornadaDetailPage({
     }),
     prisma.match.findMany({
       where: { leagueRoundId: roundId },
-      orderBy: { createdAt: 'asc' },
+      // Grupo 1 primero; los partidos sin grupo van al final (NULLS LAST en PG).
+      orderBy: [{ groupNumber: 'asc' }, { createdAt: 'asc' }],
       include: {
         court: { select: { name: true } },
         sides: {
@@ -115,6 +116,7 @@ export default async function JornadaDetailPage({
       id: m.id,
       status: m.status,
       winnerSide: m.winnerSide,
+      groupNumber: m.groupNumber ?? null,
       courtId: m.courtId ?? null,
       courtName: m.court?.name ?? null,
       scheduledLabel: m.scheduledAt ? dateTimeFmt.format(m.scheduledAt) : null,

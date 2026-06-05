@@ -1048,11 +1048,13 @@ function GroupCard({
   roundId,
   group,
   roster,
+  maxGroupNumber,
   courts,
 }: {
   roundId: string
   group: RoundGroup
   roster?: GroupRoster
+  maxGroupNumber: number
   courts: Option[]
 }) {
   const boundAction = captureGroupResults.bind(null, roundId)
@@ -1112,6 +1114,84 @@ function GroupCard({
     if (matches.some((m) => m.status === 'walkover')) return 'walkover'
     return 'scheduled'
   })()
+
+  // Estadísticas por jugador (se muestran al finalizar el grupo). El ausente
+  // pierde la jornada: 0 sets y último, igual que al cerrar la jornada.
+  type GroupStat = {
+    id: string
+    name: string
+    note: string | null
+    isAbsent: boolean
+    setsWon: number
+    setsLost: number
+    gamesFor: number
+    gamesAgainst: number
+  }
+  const stats: GroupStat[] = derived.map((p) => {
+    const mem = memberByPlayer.get(p.id)
+    if (mem?.attendance === 'absent') {
+      return {
+        id: p.id,
+        name: mem.fullName,
+        note: mem.substituteName ? `No llegó · ${mem.substituteName}` : 'No llegó',
+        isAbsent: true,
+        setsWon: 0,
+        setsLost: matches.filter((m) => m.sets.length > 0).length,
+        gamesFor: 0,
+        gamesAgainst: 0,
+      }
+    }
+    let setsWon = 0
+    let setsLost = 0
+    let gamesFor = 0
+    let gamesAgainst = 0
+    for (const m of matches) {
+      const set = m.sets[0]
+      if (!set) continue
+      const onA = m.sideA.some((x) => x.id === p.id)
+      const onB = m.sideB.some((x) => x.id === p.id)
+      if (!onA && !onB) continue
+      gamesFor += onA ? set.gamesA : set.gamesB
+      gamesAgainst += onA ? set.gamesB : set.gamesA
+      if ((onA && m.winnerSide === 'A') || (onB && m.winnerSide === 'B'))
+        setsWon += 1
+      else if (m.winnerSide) setsLost += 1
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      note: null,
+      isAbsent: false,
+      setsWon,
+      setsLost,
+      gamesFor,
+      gamesAgainst,
+    }
+  })
+  // Presentes por sets ganados, luego dif. de juegos; ausentes al fondo.
+  const rankedStats = [
+    ...stats
+      .filter((s) => !s.isAbsent)
+      .sort(
+        (a, b) =>
+          b.setsWon - a.setsWon ||
+          b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
+          b.gamesFor - a.gamesFor,
+      ),
+    ...stats.filter((s) => s.isAbsent),
+  ]
+  const movementOf = (rank: number, isAbsent: boolean) => {
+    if (isAbsent) return group.groupNumber < maxGroupNumber ? 'down' : 'stay'
+    if (rank === 1 && group.groupNumber > 1) return 'up'
+    if (rank === rankedStats.length && group.groupNumber < maxGroupNumber)
+      return 'down'
+    return 'stay'
+  }
+  const movementLabel: Record<string, string> = {
+    up: 'Sube',
+    down: 'Baja',
+    stay: 'Mantiene',
+  }
 
   const remove = () => {
     if (!confirm(`¿Eliminar el grupo ${group.groupNumber} y sus 3 sets?`)) return
@@ -1254,6 +1334,88 @@ function GroupCard({
         </div>
       ) : null}
 
+      {groupStatus === 'finished' && (
+        <div className="mt-4 overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <th className="px-3 py-2 text-left font-normal">#</th>
+                <th className="px-3 py-2 text-left font-normal">Jugador</th>
+                <th className="px-3 py-2 text-center font-normal">Sets</th>
+                <th className="px-3 py-2 text-center font-normal">Juegos</th>
+                <th className="px-3 py-2 text-center font-normal">Dif.</th>
+                <th className="px-3 py-2 text-right font-normal">Mov.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rankedStats.map((s, i) => {
+                const rank = i + 1
+                const mv = movementOf(rank, s.isAbsent)
+                const diff = s.gamesFor - s.gamesAgainst
+                return (
+                  <tr
+                    key={s.id}
+                    className="border-b border-border/60 last:border-0"
+                  >
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground tabular-nums">
+                      {rank}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={cn(
+                          'text-foreground',
+                          s.isAbsent && 'text-muted-foreground line-through',
+                          rank === 1 && !s.isAbsent && 'font-medium',
+                        )}
+                      >
+                        {s.name}
+                      </span>
+                      {s.note && (
+                        <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-terracotta">
+                          {s.note}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center tabular-nums">
+                      {s.setsWon}–{s.setsLost}
+                    </td>
+                    <td className="px-3 py-2 text-center tabular-nums text-muted-foreground">
+                      {s.gamesFor}–{s.gamesAgainst}
+                    </td>
+                    <td
+                      className={cn(
+                        'px-3 py-2 text-center tabular-nums',
+                        diff > 0
+                          ? 'text-forest'
+                          : diff < 0
+                            ? 'text-terracotta'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {diff > 0 ? `+${diff}` : diff}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span
+                        className={cn(
+                          'font-mono text-[10px] uppercase tracking-wider',
+                          mv === 'up'
+                            ? 'text-forest'
+                            : mv === 'down'
+                              ? 'text-terracotta'
+                              : 'text-muted-foreground',
+                        )}
+                      >
+                        {movementLabel[mv]}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <form key={formKey} action={formAction} className="mt-4 space-y-2">
         {state.error && (
           <p className="text-xs text-destructive">{state.error}</p>
@@ -1315,16 +1477,18 @@ function GroupCard({
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-            {anyScores
-              ? derived
-                  .map(
-                    (p) =>
-                      `${displayName(p).split(' ')[0]} ${
-                        gamesByPlayer.get(p.id) ?? 0
-                      }`,
-                  )
-                  .join(' · ')
-              : 'Deja vacíos los sets no jugados. Los juegos se reparten por jugador.'}
+            {groupStatus === 'finished'
+              ? null
+              : anyScores
+                ? derived
+                    .map(
+                      (p) =>
+                        `${displayName(p).split(' ')[0]} ${
+                          gamesByPlayer.get(p.id) ?? 0
+                        }`,
+                    )
+                    .join(' · ')
+                : 'Deja vacíos los sets no jugados. Los juegos se reparten por jugador.'}
           </p>
           <Button
             type="submit"
@@ -1380,6 +1544,7 @@ export function RoundMatches({
       ungrouped.push(m)
     }
   }
+  const maxGroupNumber = byGroup.size ? Math.max(...byGroup.keys()) : 0
   const groups: RoundGroup[] = [...byGroup.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([groupNumber, ms]) => {
@@ -1444,6 +1609,7 @@ export function RoundMatches({
                 roundId={roundId}
                 group={g}
                 roster={rosterByGroup.get(g.groupNumber)}
+                maxGroupNumber={maxGroupNumber}
                 courts={courts}
               />
             ))}

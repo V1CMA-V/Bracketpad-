@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Search } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { currentNavLabel } from './dashboard-nav'
+import { useDashboard } from './dashboard-context'
 
 /**
  * Sticky header for dashboard pages: route-aware breadcrumb + global search.
@@ -17,11 +18,13 @@ export function DashboardTopbar({
 }) {
   const pathname = usePathname()
   const section = currentNavLabel(pathname)
+  const { club } = useDashboard()
 
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-background/95 px-8 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-        Club Marítimo <span className="mx-1 text-foreground/25">/</span>
+        {club?.name ?? 'Mi cuenta'}{' '}
+        <span className="mx-1 text-foreground/25">/</span>
         <span className="text-foreground">{section}</span>
       </p>
 

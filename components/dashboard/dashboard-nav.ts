@@ -3,6 +3,7 @@ import {
   Bell,
   CalendarDays,
   LayoutGrid,
+  ListOrdered,
   Network,
   Settings,
   Trophy,
@@ -29,6 +30,7 @@ export const dashboardNav: NavGroup[] = [
     items: [
       { label: 'Resumen', href: '/dashboard', icon: BarChart3 },
       { label: 'Torneos', href: '/dashboard/torneos', icon: Trophy, badge: 4 },
+      { label: 'Ligas', href: '/dashboard/ligas', icon: ListOrdered },
       { label: 'Cuadros', href: '/dashboard/cuadros', icon: Network },
       { label: 'Programación', href: '/dashboard/programacion', icon: CalendarDays },
       { label: 'Jugadores', href: '/dashboard/jugadores', icon: Users, badge: 312 },

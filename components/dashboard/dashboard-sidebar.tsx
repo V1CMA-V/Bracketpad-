@@ -1,13 +1,22 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { ChevronsUpDown } from 'lucide-react'
+import { ChevronsUpDown, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { dashboardNav, isNavItemActive } from './dashboard-nav'
+import { initials, roleLabel, useDashboard } from './dashboard-context'
 
 export function DashboardSidebar() {
   const pathname = usePathname()
+  const { user, club } = useDashboard()
+  const data = { user, club }
+
+  const clubSubtitle = club
+    ? [club.city, `${club.courtCount} ${club.courtCount === 1 ? 'pista' : 'pistas'}`]
+        .filter(Boolean)
+        .join(' · ')
+    : null
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-cream/10 bg-ink text-cream">
@@ -29,23 +38,45 @@ export function DashboardSidebar() {
 
       {/* Selector de club */}
       <div className="px-4 pb-2">
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 rounded-lg border border-cream/10 bg-cream/5 p-3 text-left transition-colors hover:bg-cream/10"
-        >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-terracotta font-serif text-base text-cream">
-            M
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm leading-tight">
-              Club Marítimo del Olivar
+        {club ? (
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-lg border border-cream/10 bg-cream/5 p-3 text-left transition-colors hover:bg-cream/10"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-terracotta font-serif text-base text-cream">
+              {initials(club.name, 1)}
             </span>
-            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-wider text-cream/45">
-              Valencia · 8 pistas
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm leading-tight">
+                {club.name}
+              </span>
+              <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-wider text-cream/45">
+                {clubSubtitle}
+              </span>
             </span>
-          </span>
-          <ChevronsUpDown className="size-3.5 shrink-0 text-cream/40" strokeWidth={1.5} />
-        </button>
+            <ChevronsUpDown
+              className="size-3.5 shrink-0 text-cream/40"
+              strokeWidth={1.5}
+            />
+          </button>
+        ) : (
+          <Link
+            href="/registro/club"
+            className="flex w-full items-center gap-3 rounded-lg border border-dashed border-cream/15 bg-cream/5 p-3 text-left transition-colors hover:bg-cream/10"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-cream/10 text-cream/60">
+              <Plus className="size-4" strokeWidth={2} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm leading-tight">
+                Crear club
+              </span>
+              <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-wider text-cream/45">
+                Sin club asignado
+              </span>
+            </span>
+          </Link>
+        )}
       </div>
 
       {/* Navegación */}
@@ -99,12 +130,14 @@ export function DashboardSidebar() {
       <div className="border-t border-cream/10 p-4">
         <div className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-forest font-mono text-[11px] text-cream">
-            CR
+            {initials(user.name, 2)}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm leading-tight">Carla Ruiz</span>
+            <span className="block truncate text-sm leading-tight">
+              {user.name}
+            </span>
             <span className="block font-mono text-[10px] uppercase tracking-wider text-cream/45">
-              Administradora
+              {roleLabel(data)}
             </span>
           </span>
         </div>

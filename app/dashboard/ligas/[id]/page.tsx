@@ -12,7 +12,7 @@ import {
   leagueStatusStyles,
   standingTiebreakerLabels,
 } from '@/lib/leagues'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -161,16 +161,32 @@ export default async function LigaDetailPage({
   return (
     <>
       <DashboardTopbar>
-        <Button
-          asChild
-          variant="outline"
-          className="h-9 gap-1.5 rounded-md px-4 text-sm"
-        >
-          <Link href="/dashboard/ligas">
-            <ArrowLeft className="size-4" strokeWidth={2} />
-            Ligas
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            asChild
+            variant="outline"
+            className="h-9 gap-1.5 rounded-md px-4 text-sm"
+          >
+            <Link href="/dashboard/ligas">
+              <ArrowLeft className="size-4" strokeWidth={2} />
+              Ligas
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            className="h-9 gap-1.5 rounded-md px-4 text-sm"
+          >
+            <Link
+              href={`/clubs/${club.slug}/l/${league.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Ver página pública
+              <ArrowUpRight className="size-4" strokeWidth={2} />
+            </Link>
+          </Button>
+        </div>
       </DashboardTopbar>
 
       <div className="mx-auto max-w-[1600px] px-8 py-10">

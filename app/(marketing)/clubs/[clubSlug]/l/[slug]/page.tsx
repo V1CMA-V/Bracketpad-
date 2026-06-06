@@ -40,7 +40,7 @@ function formatRange(start: Date | null, end: Date | null): string {
   return 'Fechas por confirmar'
 }
 
-/** Carga la liga pública (no borrador) de un club por su slug. */
+/** Carga la liga pública de un club por su slug. */
 async function getLeague(clubSlug: string, leagueId: string) {
   const club = await prisma.club.findUnique({
     where: { slug: clubSlug },
@@ -58,7 +58,7 @@ async function getLeague(clubSlug: string, leagueId: string) {
   if (!club) return null
 
   const league = await prisma.league.findFirst({
-    where: { id: leagueId, clubId: club.id, status: { not: 'draft' } },
+    where: { id: leagueId, clubId: club.id },
     include: {
       scoringConfig: true,
       _count: { select: { registrations: true, rounds: true, matches: true } },

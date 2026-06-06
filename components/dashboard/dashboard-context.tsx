@@ -6,6 +6,7 @@ export type DashboardData = {
   user: { name: string; accountType: string }
   club: {
     name: string
+    slug: string
     city: string | null
     courtCount: number
     role: string

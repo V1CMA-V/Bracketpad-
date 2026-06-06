@@ -34,6 +34,7 @@ export async function getDashboardData() {
     club: membership
       ? {
           name: membership.club.name,
+          slug: membership.club.slug,
           city: membership.club.city,
           courtCount: membership.club._count.courts,
           role: membership.role,

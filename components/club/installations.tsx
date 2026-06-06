@@ -9,17 +9,6 @@ type Court = {
   detail: string
 }
 
-const COURTS: Court[] = [
-  { index: '01', name: 'Central', type: 'Cubierta', surface: 'Césped', status: 'playing', detail: 'Final 1ª masc' },
-  { index: '02', name: 'Pacífico', type: 'Cubierta', surface: 'Césped', status: 'playing', detail: '2ª fem · cuartos' },
-  { index: '03', name: 'Atlántico', type: 'Cubierta', surface: 'Césped', status: 'next', detail: '17:00 · 3ª mixta' },
-  { index: '04', name: 'Sirocco', type: 'Aire', surface: 'Césped', status: 'playing', detail: 'Vet +45' },
-  { index: '05', name: 'Levante', type: 'Aire', surface: 'Césped', status: 'free', detail: 'libre 19:30' },
-  { index: '06', name: 'Mistral', type: 'Aire', surface: 'Rápida', status: 'next', detail: '18:30 · 4ª masc' },
-  { index: '07', name: 'Tramuntana', type: 'Aire', surface: 'Césped', status: 'free', detail: 'libre 18:00' },
-  { index: '08', name: 'Garbí', type: 'Aire', surface: 'Césped', status: 'closed', detail: 'mantenimiento' },
-]
-
 const STATUS_LABEL: Record<Status, string> = {
   playing: 'En juego',
   next: 'Próximo',
@@ -34,7 +23,7 @@ function cardStyles(status: Status) {
     case 'next':
       return 'bg-ochre text-ink'
     case 'free':
-      return 'bg-card text-ink border border-border'
+      return 'border border-border bg-card text-ink'
     case 'closed':
       return 'bg-muted text-ink/50'
   }
@@ -47,15 +36,28 @@ function dotColor(status: Status) {
     case 'next':
       return 'bg-ink'
     case 'free':
-      return 'bg-transparent border border-ink/40'
+      return 'border border-ink/40 bg-transparent'
     case 'closed':
       return 'bg-ink/40'
   }
 }
 
-export function Installations() {
+export function Installations({
+  courts,
+  indoorCourts,
+  outdoorCourts,
+}: {
+  courts: Court[]
+  indoorCourts: number
+  outdoorCourts: number
+}) {
+  const total = courts.length
+
   return (
-    <section className="bg-cream px-6 py-16 md:px-12">
+    <section
+      id="instalaciones"
+      className="scroll-mt-20 bg-cream px-6 py-16 md:px-12"
+    >
       <div className="mx-auto max-w-[1400px]">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-xl">
@@ -63,69 +65,95 @@ export function Installations() {
               Instalaciones
             </p>
             <h2 className="mt-3 font-heading text-5xl leading-none text-ink md:text-6xl">
-              Las <em className="italic">ocho</em> pistas.
+              {total === 0 ? (
+                <>
+                  Sin pistas <em className="italic">publicadas.</em>
+                </>
+              ) : (
+                <>
+                  Las <em className="italic">{total}</em>{' '}
+                  {total === 1 ? 'pista' : 'pistas'}.
+                </>
+              )}
             </h2>
-            <p className="mt-4 font-serif text-base italic text-muted-foreground">
-              Tres cubiertas con césped rápido y cinco al aire libre frente al puerto. Vista en
-              tiempo real del estado de cada pista.
-            </p>
+            {total > 0 && (
+              <p className="mt-4 font-serif text-base italic text-muted-foreground">
+                {indoorCourts > 0 &&
+                  `${indoorCourts} ${indoorCourts === 1 ? 'cubierta' : 'cubiertas'}`}
+                {indoorCourts > 0 && outdoorCourts > 0 && ' y '}
+                {outdoorCourts > 0 &&
+                  `${outdoorCourts} al aire libre`}
+                . Estado en tiempo real de cada pista.
+              </p>
+            )}
           </div>
 
-          <ul className="flex flex-wrap items-center gap-4 font-mono text-[11px] uppercase tracking-wider text-ink">
-            <li className="flex items-center gap-2">
-              <span className="h-3 w-3 bg-forest" />
-              En juego
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="h-3 w-3 bg-ochre" />
-              Próximo
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="h-3 w-3 border border-ink/30 bg-card" />
-              Libre
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="h-3 w-3 bg-muted" />
-              Cerrada
-            </li>
-          </ul>
+          {total > 0 && (
+            <ul className="flex flex-wrap items-center gap-4 font-mono text-[11px] uppercase tracking-wider text-ink">
+              <li className="flex items-center gap-2">
+                <span className="h-3 w-3 bg-forest" />
+                En juego
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="h-3 w-3 bg-ochre" />
+                Próximo
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="h-3 w-3 border border-ink/30 bg-card" />
+                Libre
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="h-3 w-3 bg-muted" />
+                Cerrada
+              </li>
+            </ul>
+          )}
         </div>
 
-        <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {COURTS.map((c) => (
-            <article
-              key={c.index}
-              className={
-                'relative flex aspect-[4/3] flex-col justify-between overflow-hidden rounded-md p-5 ' +
-                cardStyles(c.status)
-              }
-              style={{
-                backgroundImage:
-                  c.status === 'playing' || c.status === 'next' || c.status === 'closed'
-                    ? 'repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), rgba(255,255,255,0.08) calc(25% - 1px) 25%)'
-                    : 'repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), rgba(0,0,0,0.05) calc(25% - 1px) 25%)',
-              }}
-            >
-              <header className="flex items-start justify-between">
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-wider opacity-70">
-                    Pista {c.index}
-                  </p>
-                  <p className="mt-4 font-heading text-3xl leading-none">{c.name}</p>
-                  <p className="mt-2 font-mono text-[11px] uppercase tracking-wider opacity-80">
-                    {c.type} · {c.surface}
-                  </p>
-                </div>
-                <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider">
-                  <span className={'h-2 w-2 rounded-full ' + dotColor(c.status)} />
-                  {STATUS_LABEL[c.status]}
-                </span>
-              </header>
+        {total === 0 ? (
+          <div className="mt-10 flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-card py-20 text-center">
+            <p className="font-heading text-2xl text-ink">Sin instalaciones</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Este club aún no ha registrado sus pistas.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {courts.map((c) => (
+              <article
+                key={c.index}
+                className={
+                  'relative flex aspect-[4/3] flex-col justify-between overflow-hidden rounded-md p-5 ' +
+                  cardStyles(c.status)
+                }
+                style={{
+                  backgroundImage:
+                    c.status === 'playing' || c.status === 'next' || c.status === 'closed'
+                      ? 'repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), rgba(255,255,255,0.08) calc(25% - 1px) 25%)'
+                      : 'repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), rgba(0,0,0,0.05) calc(25% - 1px) 25%)',
+                }}
+              >
+                <header className="flex items-start justify-between">
+                  <div>
+                    <p className="font-mono text-[11px] uppercase tracking-wider opacity-70">
+                      Pista {c.index}
+                    </p>
+                    <p className="mt-4 font-heading text-3xl leading-none">{c.name}</p>
+                    <p className="mt-2 font-mono text-[11px] uppercase tracking-wider opacity-80">
+                      {c.type} · {c.surface}
+                    </p>
+                  </div>
+                  <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider">
+                    <span className={'h-2 w-2 rounded-full ' + dotColor(c.status)} />
+                    {STATUS_LABEL[c.status]}
+                  </span>
+                </header>
 
-              <p className="font-mono text-xs lowercase opacity-90">{c.detail}</p>
-            </article>
-          ))}
-        </div>
+                <p className="font-mono text-xs lowercase opacity-90">{c.detail}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

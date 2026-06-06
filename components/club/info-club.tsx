@@ -1,22 +1,44 @@
-const SCHEDULE = [
-  { day: 'Lun — Vie', hours: '07:00 — 23:30', highlight: false },
-  { day: 'Sábado', hours: '08:00 — 22:00', highlight: false },
-  { day: 'Domingo', hours: '08:00 — 21:00', highlight: false },
-  { day: 'Festivos', hours: '09:00 — 14:00', highlight: true },
-]
+type ScheduleEntry = { day: string; hours: string }
+type Surface = { label: string; count: number }
 
-const RATES = [
-  { label: 'Cubierta', value: "€24 / 90'", highlight: false },
-  { label: 'Aire libre', value: "€18 / 90'", highlight: false },
-  { label: 'Socios', value: '-40%', highlight: false },
-  { label: 'Nocturna', value: '+€4', highlight: true },
-]
+export function InfoClub({
+  name,
+  city,
+  address,
+  phone,
+  email,
+  schedule,
+  surfaces,
+  totalCourts,
+  playersCount,
+}: {
+  name: string
+  city?: string | null
+  address?: string | null
+  phone?: string | null
+  email?: string | null
+  schedule: ScheduleEntry[]
+  surfaces: Surface[]
+  totalCourts: number
+  playersCount: number
+}) {
+  const hasSchedule = schedule.length > 0
+  // Resumen del horario para el encabezado (primer tramo conocido).
+  const headerHours = hasSchedule ? schedule[0].hours : null
 
-export function InfoClub() {
+  const facts = [
+    { label: 'Pistas', value: String(totalCourts) },
+    { label: 'Jugadores', value: String(playersCount) },
+    {
+      label: 'Ciudad',
+      value: city ?? '—',
+    },
+  ]
+
   return (
     <section className="bg-cream px-6 py-16 md:px-12">
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Map card */}
+        {/* Tarjeta ubicación */}
         <article
           className="relative flex aspect-[5/3] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-8"
           style={{
@@ -30,14 +52,20 @@ export function InfoClub() {
               Cómo llegar
             </p>
             <h3 className="mt-3 font-heading text-4xl leading-tight text-ink">
-              Av. del Puerto, <em className="italic">238.</em>
+              {address ? (
+                <em className="italic">{address}.</em>
+              ) : (
+                <em className="italic">{name}.</em>
+              )}
             </h3>
-            <p className="mt-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
-              46011 Valencia · España
-            </p>
+            {city && (
+              <p className="mt-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                {city}
+              </p>
+            )}
           </header>
 
-          {/* Coast line + pin */}
+          {/* Pin decorativo */}
           <div className="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2">
             <span
               className="absolute left-1/2 top-2 z-10 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full bg-terracotta text-cream"
@@ -67,29 +95,31 @@ export function InfoClub() {
           </div>
 
           <footer className="relative grid grid-cols-3 gap-6 font-mono text-xs">
-            {[
-              { label: 'Metro', value: 'Marítim — 4 min' },
-              { label: 'Aparcamiento', value: '120 plazas' },
-              { label: 'Tranvía', value: 'Línea 6 · Grau' },
-            ].map((item) => (
+            {facts.map((item) => (
               <div key={item.label} className="flex flex-col gap-1">
                 <span className="uppercase tracking-wider text-muted-foreground">
                   {item.label}
                 </span>
-                <span className="text-ink">{item.value}</span>
+                <span className="truncate text-ink">{item.value}</span>
               </div>
             ))}
           </footer>
         </article>
 
-        {/* Hours + contact card */}
+        {/* Tarjeta horario + contacto */}
         <article className="flex flex-col gap-6 rounded-md border border-border bg-card p-8">
           <header>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
               Horario · Contacto
             </p>
             <h3 className="mt-3 font-heading text-4xl leading-tight text-ink">
-              <em className="italic">Abierto</em> de 07:00 a 23:30
+              {headerHours ? (
+                <>
+                  <em className="italic">Abierto</em> {headerHours}
+                </>
+              ) : (
+                <em className="italic">Horario por confirmar</em>
+              )}
             </h3>
           </header>
 
@@ -98,40 +128,46 @@ export function InfoClub() {
               <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
                 Horarios
               </p>
-              <dl className="mt-3 flex flex-col gap-2 font-mono text-sm">
-                {SCHEDULE.map((s) => (
-                  <div
-                    key={s.day}
-                    className={
-                      'flex items-center justify-between ' +
-                      (s.highlight ? 'text-terracotta' : 'text-ink')
-                    }
-                  >
-                    <dt>{s.day}</dt>
-                    <dd>{s.hours}</dd>
-                  </div>
-                ))}
-              </dl>
+              {hasSchedule ? (
+                <dl className="mt-3 flex flex-col gap-2 font-mono text-sm">
+                  {schedule.map((s) => (
+                    <div
+                      key={s.day}
+                      className="flex items-center justify-between text-ink"
+                    >
+                      <dt>{s.day}</dt>
+                      <dd>{s.hours}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-3 font-mono text-sm text-muted-foreground">
+                  Sin horario publicado
+                </p>
+              )}
             </div>
 
             <div>
               <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                Tarifas pista
+                Superficies
               </p>
-              <dl className="mt-3 flex flex-col gap-2 font-mono text-sm">
-                {RATES.map((r) => (
-                  <div
-                    key={r.label}
-                    className={
-                      'flex items-center justify-between ' +
-                      (r.highlight ? 'text-terracotta' : 'text-ink')
-                    }
-                  >
-                    <dt>{r.label}</dt>
-                    <dd>{r.value}</dd>
-                  </div>
-                ))}
-              </dl>
+              {surfaces.length > 0 ? (
+                <dl className="mt-3 flex flex-col gap-2 font-mono text-sm">
+                  {surfaces.map((s) => (
+                    <div
+                      key={s.label}
+                      className="flex items-center justify-between text-ink"
+                    >
+                      <dt>{s.label}</dt>
+                      <dd>
+                        {s.count} {s.count === 1 ? 'pista' : 'pistas'}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-3 font-mono text-sm text-muted-foreground">—</p>
+              )}
             </div>
           </div>
 
@@ -142,13 +178,29 @@ export function InfoClub() {
               <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
                 Teléfono
               </p>
-              <p className="mt-2 font-mono text-sm text-ink">96 365 18 24</p>
+              <p className="mt-2 font-mono text-sm text-ink">
+                {phone ? (
+                  <a href={`tel:${phone}`} className="hover:text-terracotta">
+                    {phone}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </p>
             </div>
             <div>
               <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
                 Email
               </p>
-              <p className="mt-2 font-mono text-sm text-ink">hola@maritimoolivar.es</p>
+              <p className="mt-2 truncate font-mono text-sm text-ink">
+                {email ? (
+                  <a href={`mailto:${email}`} className="hover:text-terracotta">
+                    {email}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </p>
             </div>
           </div>
         </article>

@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { ChevronsUpDown, Plus, X } from 'lucide-react'
+import { ChevronsUpDown, ExternalLink, Plus, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
@@ -91,7 +91,21 @@ export function DashboardSidebar() {
               strokeWidth={1.5}
             />
           </button>
-        ) : (
+        ) : null}
+
+        {club && (
+          <Link
+            href={`/clubs/${club.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 flex items-center justify-center gap-2 rounded-md border border-cream/10 bg-transparent px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-cream/60 transition-colors hover:bg-cream/5 hover:text-cream"
+          >
+            Ver perfil público
+            <ExternalLink className="size-3.5 shrink-0" strokeWidth={1.5} />
+          </Link>
+        )}
+
+        {!club && (
           <Link
             href="/registro/club"
             className="flex w-full items-center gap-3 rounded-lg border border-dashed border-cream/15 bg-cream/5 p-3 text-left transition-colors hover:bg-cream/10"

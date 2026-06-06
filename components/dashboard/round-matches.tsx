@@ -7,9 +7,11 @@ import {
   FlagTriangleRight,
   Plus,
   Save,
+  Search,
   Trash2,
   Users,
   Wand2,
+  X,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -34,6 +36,14 @@ import {
 
 const fieldCls =
   'h-9 w-full rounded-md border border-border bg-input/30 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+
+/** Normaliza para búsqueda: minúsculas y sin acentos. */
+const normalizeText = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
 
 const initialState: MatchState = {}
 
@@ -1064,6 +1074,7 @@ function GroupCard({
   maxGroupNumber,
   courts,
   globalStandings,
+  highlight,
 }: {
   roundId: string
   group: RoundGroup
@@ -1071,6 +1082,8 @@ function GroupCard({
   maxGroupNumber: number
   courts: Option[]
   globalStandings?: Record<string, GlobalStanding>
+  /** Texto de búsqueda ya normalizado, para resaltar el jugador coincidente. */
+  highlight?: string
 }) {
   const boundAction = captureGroupResults.bind(null, roundId)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
@@ -1250,6 +1263,10 @@ function GroupCard({
     stay: 'Mantiene',
   }
 
+  // ¿Coincide este nombre con la búsqueda activa? (para resaltarlo).
+  const isHit = (name: string) =>
+    !!highlight && normalizeText(name).includes(highlight)
+
   const remove = () => {
     if (!confirm(`¿Eliminar el grupo ${group.groupNumber} y sus 3 sets?`)) return
     startRemove(() => {
@@ -1295,7 +1312,16 @@ function GroupCard({
             )}
           </h3>
           <p className="mt-1 truncate text-sm text-muted-foreground">
-            {lineup.join(' · ')}
+            {lineup.map((name, i) => (
+              <span key={i}>
+                {i > 0 && ' · '}
+                <span
+                  className={cn(isHit(name) && 'font-semibold text-primary')}
+                >
+                  {name}
+                </span>
+              </span>
+            ))}
           </p>
           <p className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             <span>{statusLabels[groupStatus] ?? groupStatus}</span>
@@ -1412,7 +1438,10 @@ function GroupCard({
                 return (
                   <tr
                     key={s.id}
-                    className="border-b border-border/60 last:border-0"
+                    className={cn(
+                      'border-b border-border/60 last:border-0',
+                      isHit(s.name) && 'bg-primary/10',
+                    )}
                   >
                     <td className="px-3 py-2 font-mono text-xs text-muted-foreground tabular-nums">
                       {rank}
@@ -1423,6 +1452,7 @@ function GroupCard({
                           'text-foreground',
                           s.isAbsent && 'text-muted-foreground line-through',
                           rank === 1 && !s.isAbsent && 'font-medium',
+                          isHit(s.name) && 'font-semibold text-primary',
                         )}
                       >
                         {s.name}
@@ -1589,6 +1619,7 @@ export function RoundMatches({
 }) {
   const isIndividual = playKind === 'individual'
   const rosterByGroup = new Map(rosters.map((r) => [r.groupNumber, r]))
+  const [query, setQuery] = useState('')
 
   // En ligas individuales los partidos con grupo se muestran como tarjetas de
   // grupo; el resto (sin grupo, o ligas de parejas) como filas sueltas.
@@ -1620,6 +1651,24 @@ export function RoundMatches({
         matches: ms,
       }
     })
+
+  // Nombres buscables de un grupo: jugadores inscritos y suplentes (pase de
+  // lista) más los nombres que aparecen en los partidos.
+  const groupNames = (g: RoundGroup) => {
+    const names = new Set<string>()
+    for (const m of rosterByGroup.get(g.groupNumber)?.members ?? []) {
+      names.add(m.fullName)
+      if (m.substituteName) names.add(m.substituteName)
+    }
+    for (const mt of g.matches)
+      for (const p of [...mt.sideA, ...mt.sideB]) names.add(p.name)
+    return [...names]
+  }
+
+  const q = normalizeText(query)
+  const visibleGroups = q
+    ? groups.filter((g) => groupNames(g).some((n) => normalizeText(n).includes(q)))
+    : groups
 
   return (
     <section className="space-y-5">
@@ -1661,8 +1710,46 @@ export function RoundMatches({
         </div>
       ) : (
         <>
+          {groups.length > 1 && (
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                strokeWidth={2}
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar jugador por nombre…"
+                aria-label="Buscar jugador en los grupos"
+                className={cn(fieldCls, 'h-10 px-9')}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="Limpiar búsqueda"
+                  className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-4" strokeWidth={2} />
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="space-y-6">
-            {groups.map((g) => (
+            {q && (
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {visibleGroups.length === 0
+                  ? 'Ningún grupo coincide'
+                  : `${visibleGroups.length} ${
+                      visibleGroups.length === 1
+                        ? 'grupo encontrado'
+                        : 'grupos encontrados'
+                    }`}
+              </p>
+            )}
+            {visibleGroups.map((g) => (
               <GroupCard
                 key={g.groupNumber}
                 roundId={roundId}
@@ -1671,10 +1758,11 @@ export function RoundMatches({
                 maxGroupNumber={maxGroupNumber}
                 courts={courts}
                 globalStandings={globalStandings}
+                highlight={q}
               />
             ))}
 
-            {ungrouped.length > 0 && (
+            {!q && ungrouped.length > 0 && (
               <div>
                 {groups.length > 0 && (
                   <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">

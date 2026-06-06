@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   Clock,
   FlagTriangleRight,
+  Lock,
   Plus,
   Save,
   Search,
@@ -15,7 +16,11 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { NO_SHOW_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
+import {
+  MAX_GAMES_PER_SET,
+  NO_SHOW_GAMES_PER_SET,
+  NO_SHOW_SETS,
+} from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
 import {
   captureGroupResults,
@@ -36,6 +41,21 @@ import {
 
 const fieldCls =
   'h-9 w-full rounded-md border border-border bg-input/30 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+
+/**
+ * Acota un input de juegos en tiempo real: solo dígitos (sin signo negativo) y
+ * un tope de `MAX_GAMES_PER_SET` (7), ya que en pádel el marcador más alto es
+ * 7-6. Evita escribir/pegar valores imposibles, no solo marcarlos como inválidos.
+ */
+const clampGamesInput = (e: React.FormEvent<HTMLInputElement>) => {
+  const el = e.currentTarget
+  const digits = el.value.replace(/[^\d]/g, '')
+  if (digits === '') {
+    el.value = ''
+    return
+  }
+  el.value = String(Math.min(parseInt(digits, 10), MAX_GAMES_PER_SET))
+}
 
 /** Normaliza para búsqueda: minúsculas y sin acentos. */
 const normalizeText = (s: string) =>
@@ -463,8 +483,10 @@ function ResultForm({
               <input
                 name="gamesA"
                 type="number"
+                inputMode="numeric"
                 min={0}
-                max={99}
+                max={MAX_GAMES_PER_SET}
+                onInput={clampGamesInput}
                 defaultValue={set?.gamesA ?? ''}
                 className={cn(fieldCls, 'w-14 text-center')}
               />
@@ -472,8 +494,10 @@ function ResultForm({
               <input
                 name="gamesB"
                 type="number"
+                inputMode="numeric"
                 min={0}
-                max={99}
+                max={MAX_GAMES_PER_SET}
+                onInput={clampGamesInput}
                 defaultValue={set?.gamesB ?? ''}
                 className={cn(fieldCls, 'w-14 text-center')}
               />
@@ -849,9 +873,17 @@ function GenerateGroupsButton({ roundId }: { roundId: string }) {
 /*  Cerrar jornada (ascenso/descenso → genera la siguiente)                   */
 /* -------------------------------------------------------------------------- */
 
-function CloseRoundButton({ roundId }: { roundId: string }) {
+function CloseRoundButton({
+  roundId,
+  lockReason,
+}: {
+  roundId: string
+  /** Si está definido, el cierre está bloqueado y este es el motivo. */
+  lockReason?: string
+}) {
   const boundAction = closeRoundAndAdvance.bind(null, roundId)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
+  const locked = !!lockReason
 
   return (
     <form
@@ -861,18 +893,35 @@ function CloseRoundButton({ roundId }: { roundId: string }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-foreground">Cerrar jornada</p>
-          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            Calcula ascensos y descensos · genera la jornada siguiente
+          <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            {locked ? (
+              <>
+                <Lock className="size-3" strokeWidth={2} />
+                <span className="text-terracotta">{lockReason}</span>
+              </>
+            ) : (
+              'Calcula ascensos y descensos · genera la jornada siguiente'
+            )}
           </p>
         </div>
         <Button
           type="submit"
           variant="outline"
           className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
-          disabled={pending}
+          disabled={pending || locked}
+          title={locked ? lockReason : undefined}
+          aria-disabled={locked}
         >
-          <FlagTriangleRight className="size-4" strokeWidth={2} />
-          {pending ? 'Cerrando…' : 'Cerrar y generar siguiente'}
+          {locked ? (
+            <Lock className="size-4" strokeWidth={2} />
+          ) : (
+            <FlagTriangleRight className="size-4" strokeWidth={2} />
+          )}
+          {pending
+            ? 'Cerrando…'
+            : locked
+              ? 'Bloqueado'
+              : 'Cerrar y generar siguiente'}
         </Button>
       </div>
       {state.error && (
@@ -1543,8 +1592,10 @@ function GroupCard({
                 <input
                   name="gamesA"
                   type="number"
+                  inputMode="numeric"
                   min={0}
-                  max={99}
+                  max={MAX_GAMES_PER_SET}
+                  onInput={clampGamesInput}
                   defaultValue={set?.gamesA ?? ''}
                   className={cn(fieldCls, 'w-14 text-center')}
                 />
@@ -1552,8 +1603,10 @@ function GroupCard({
                 <input
                   name="gamesB"
                   type="number"
+                  inputMode="numeric"
                   min={0}
-                  max={99}
+                  max={MAX_GAMES_PER_SET}
+                  onInput={clampGamesInput}
                   defaultValue={set?.gamesB ?? ''}
                   className={cn(fieldCls, 'w-14 text-center')}
                 />
@@ -1670,6 +1723,23 @@ export function RoundMatches({
     ? groups.filter((g) => groupNames(g).some((n) => normalizeText(n).includes(q)))
     : groups
 
+  // Candado de cierre: no se puede cerrar y generar la siguiente jornada hasta
+  // que todos los grupos (todos sus partidos) estén finalizados.
+  const unfinishedGroups = groups.filter(
+    (g) => !g.matches.every((m) => m.status === 'finished'),
+  ).length
+  const pendingMatches = matches.filter((m) => m.status !== 'finished').length
+  const lockReason =
+    pendingMatches === 0
+      ? undefined
+      : unfinishedGroups > 0
+        ? `Faltan ${unfinishedGroups} grupo${
+            unfinishedGroups === 1 ? '' : 's'
+          } por finalizar`
+        : `Faltan ${pendingMatches} partido${
+            pendingMatches === 1 ? '' : 's'
+          } por finalizar`
+
   return (
     <section className="space-y-5">
       {players.length < 2 ? (
@@ -1782,7 +1852,7 @@ export function RoundMatches({
               </div>
             )}
           </div>
-          <CloseRoundButton roundId={roundId} />
+          <CloseRoundButton roundId={roundId} lockReason={lockReason} />
         </>
       )}
     </section>

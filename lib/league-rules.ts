@@ -4,6 +4,13 @@
 /** Sets rotativos que juega cada jugador en su grupo de 4. */
 export const NO_SHOW_SETS = 3
 
+/**
+ * Juegos máximos que puede tener un lado en un set de pádel: el resultado más
+ * alto posible es 7-6 (con tie-break a 6-6), así que ningún marcador supera 7.
+ * Se usa para acotar los inputs de resultado y validar en el servidor.
+ */
+export const MAX_GAMES_PER_SET = 7
+
 /** Juegos en contra por set forfeit cuando el jugador no se presenta. */
 export const NO_SHOW_GAMES_PER_SET = 3
 

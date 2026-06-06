@@ -8,6 +8,7 @@ import { Prisma } from '@/generated/client'
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
 import { createGroupSchema, createMatchSchema } from '@/lib/validations/jornada'
+import { MAX_GAMES_PER_SET } from '@/lib/league-rules'
 import { compareStandings, recomputeStandings } from '@/lib/standings'
 
 export type MatchState = {
@@ -509,8 +510,8 @@ export async function captureGroupResults(
       !Number.isInteger(nb) ||
       na < 0 ||
       nb < 0 ||
-      na > 99 ||
-      nb > 99
+      na > MAX_GAMES_PER_SET ||
+      nb > MAX_GAMES_PER_SET
     ) {
       return { error: `Resultado inválido en el set ${i + 1}.` }
     }
@@ -703,8 +704,8 @@ export async function captureMatchResult(
       !Number.isInteger(nb) ||
       na < 0 ||
       nb < 0 ||
-      na > 99 ||
-      nb > 99
+      na > MAX_GAMES_PER_SET ||
+      nb > MAX_GAMES_PER_SET
     ) {
       return { error: `Resultado inválido en el set ${sets.length + 1}.` }
     }

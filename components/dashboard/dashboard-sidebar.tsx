@@ -1,16 +1,24 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { ChevronsUpDown, Plus } from 'lucide-react'
+import { ChevronsUpDown, Plus, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
 import { dashboardNav, isNavItemActive } from './dashboard-nav'
 import { initials, roleLabel, useDashboard } from './dashboard-context'
+import { useSidebar } from './dashboard-sidebar-context'
 
 export function DashboardSidebar() {
   const pathname = usePathname()
   const { user, club } = useDashboard()
+  const { open, setOpen } = useSidebar()
   const data = { user, club }
+
+  // Cierra el drawer al navegar (solo afecta a móvil).
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname, setOpen])
 
   const clubSubtitle = club
     ? [club.city, `${club.courtCount} ${club.courtCount === 1 ? 'pista' : 'pistas'}`]
@@ -19,7 +27,23 @@ export function DashboardSidebar() {
     : null
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-cream/10 bg-ink text-cream">
+    <>
+      {/* Backdrop (solo móvil, cuando el drawer está abierto) */}
+      <div
+        aria-hidden
+        onClick={() => setOpen(false)}
+        className={cn(
+          'fixed inset-0 z-40 bg-ink/60 backdrop-blur-sm transition-opacity lg:hidden',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+      />
+
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex h-full w-64 shrink-0 flex-col border-r border-cream/10 bg-ink text-cream transition-transform duration-300 ease-in-out lg:static lg:translate-x-0',
+          open ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
       {/* Marca */}
       <div className="flex h-16 items-center gap-2 px-6">
         <Link
@@ -34,6 +58,14 @@ export function DashboardSidebar() {
         <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-cream/40">
           V.2026
         </span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          aria-label="Cerrar menú"
+          className="ml-2 flex size-8 items-center justify-center rounded-md text-cream/60 transition-colors hover:bg-cream/10 hover:text-cream lg:hidden"
+        >
+          <X className="size-4" strokeWidth={1.5} />
+        </button>
       </div>
 
       {/* Selector de club */}
@@ -142,6 +174,7 @@ export function DashboardSidebar() {
           </span>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

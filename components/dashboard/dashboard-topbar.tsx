@@ -1,10 +1,11 @@
 'use client'
 
 import { Input } from '@/components/ui/input'
-import { Search } from 'lucide-react'
+import { Menu, Search } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { currentNavLabel } from './dashboard-nav'
 import { useDashboard } from './dashboard-context'
+import { useSidebar } from './dashboard-sidebar-context'
 
 /**
  * Sticky header for dashboard pages: route-aware breadcrumb + global search.
@@ -19,9 +20,18 @@ export function DashboardTopbar({
   const pathname = usePathname()
   const section = currentNavLabel(pathname)
   const { club } = useDashboard()
+  const { toggle } = useSidebar()
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-background/95 px-8 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:gap-6 sm:px-8">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label="Abrir menú"
+        className="-ml-1 flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+      >
+        <Menu className="size-5" strokeWidth={1.5} />
+      </button>
       <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
         {club?.name ?? 'Mi cuenta'}{' '}
         <span className="mx-1 text-foreground/25">/</span>

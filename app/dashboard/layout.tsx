@@ -1,4 +1,5 @@
 import { DashboardSidebar } from '@/components/dashboard/dashboard-sidebar'
+import { DashboardSidebarProvider } from '@/components/dashboard/dashboard-sidebar-context'
 import {
   DashboardProvider,
   type DashboardData,
@@ -23,10 +24,12 @@ export default async function DashboardLayout({
 
   return (
     <DashboardProvider value={value}>
-      <div className="flex h-screen overflow-hidden bg-background">
-        <DashboardSidebar />
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
-      </div>
+      <DashboardSidebarProvider>
+        <div className="flex h-screen overflow-hidden bg-background">
+          <DashboardSidebar />
+          <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        </div>
+      </DashboardSidebarProvider>
     </DashboardProvider>
   )
 }

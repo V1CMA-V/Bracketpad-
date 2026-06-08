@@ -156,9 +156,10 @@ export default async function LigaDetailPage({
   const rankingTiebreakers =
     tiebreakers.length > 0 ? tiebreakers : ['set_diff', 'sets_won', 'game_diff']
   const rankingBy = cfg?.rankingBy ?? 'sets'
-  const orderedStandings = [...league.standings].sort((a, b) =>
-    compareStandings(a, b, rankingTiebreakers, rankingBy),
-  )
+  // Los jugadores retirados no entran en la clasificación.
+  const orderedStandings = league.standings
+    .filter((s) => s.registration.status !== 'withdrawn')
+    .sort((a, b) => compareStandings(a, b, rankingTiebreakers, rankingBy))
   const rankingLabel =
     rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
   // Columnas de la clasificación según el criterio: por sets (Sets/±Sets), por
@@ -256,9 +257,9 @@ export default async function LigaDetailPage({
               <ModuleHeader
                 eyebrow={`Ranking · por ${rankingLabel}`}
                 title="Clasificación"
-                aside={`${league.standings.length} jugadores`}
+                aside={`${orderedStandings.length} jugadores`}
               />
-              {league.standings.length === 0 ? (
+              {orderedStandings.length === 0 ? (
                 <EmptyState>
                   Aún no hay clasificación. Se calculará automáticamente al
                   registrar resultados de los partidos.

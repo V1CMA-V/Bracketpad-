@@ -152,9 +152,10 @@ export default async function PublicLeaguePage({
   const showSets = rankingBy !== 'games'
   const showGames = rankingBy === 'games'
   const showGameDiff = rankingBy !== 'sets'
-  const orderedStandings = [...league.standings].sort((a, b) =>
-    compareStandings(a, b, tiebreakers, rankingBy),
-  )
+  // Los jugadores retirados no entran en la clasificación.
+  const orderedStandings = league.standings
+    .filter((s) => s.registration.status !== 'withdrawn')
+    .sort((a, b) => compareStandings(a, b, tiebreakers, rankingBy))
 
   const rounds: PublicRound[] = league.rounds.map((round) => ({
     id: round.id,
@@ -286,7 +287,7 @@ export default async function PublicLeaguePage({
                   </h2>
                 </div>
                 <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  {league.standings.length} jugadores
+                  {orderedStandings.length} jugadores
                 </span>
               </div>
 

@@ -33,18 +33,28 @@ function tiebreakerValue(s: RankableStanding, criterion: string): number {
   }
 }
 
+/** Criterio principal de la clasificación. */
+export type RankingBasis = 'sets' | 'games' | 'both'
+
 /**
- * Comparador de clasificación. Criterio principal: **sets ganados** (decisión
- * de diseño de la liga, no por puntos de victoria). Los empates se rompen con
- * los desempates configurados (`tiebreaker1..3`), en orden, y como último
- * recurso por victorias y menos derrotas.
+ * Comparador de clasificación. El criterio principal depende de `rankingBy`:
+ * **diferencia de juegos** (ligas que solo cuentan juegos: ordena por ±Jue) o
+ * **sets ganados** (resto, incluido `both`, que solo cambia las columnas
+ * mostradas, no el orden). Los empates se rompen con los desempates
+ * configurados (`tiebreaker1..3`), en orden, y como último recurso por
+ * victorias y menos derrotas.
  */
 export function compareStandings(
   a: RankableStanding,
   b: RankableStanding,
   tiebreakers: string[],
+  rankingBy: RankingBasis = 'sets',
 ): number {
-  if (b.setsFor !== a.setsFor) return b.setsFor - a.setsFor
+  const primary =
+    rankingBy === 'games'
+      ? b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst)
+      : b.setsFor - a.setsFor
+  if (primary !== 0) return primary
   for (const t of tiebreakers) {
     const diff = tiebreakerValue(b, t) - tiebreakerValue(a, t)
     if (diff !== 0) return diff

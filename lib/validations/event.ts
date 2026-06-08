@@ -31,8 +31,9 @@ export const createEventSchema = z.discriminatedUnion('type', [
     name,
     startDate: optionalDate,
     endDate: optionalDate,
-    format: z.enum(['round_robin', 'divisions', 'ladder'], {
-      error: 'Elige un formato de liga.',
+    // Por ahora la liga se enfoca en el formato de grupos (antes «divisiones»).
+    format: z.literal('divisions', {
+      error: 'El formato de liga debe ser por grupos.',
     }),
     playKind: z.enum(['individual', 'pairs'], {
       error: 'Elige si la liga es individual o por parejas.',
@@ -42,6 +43,8 @@ export const createEventSchema = z.discriminatedUnion('type', [
       .int()
       .min(1, 'Mínimo 1 set.')
       .max(5, 'Máximo 5 sets.'),
+    // Cómo se decide la clasificación: por sets, solo por juegos, o ambos.
+    rankingBy: z.enum(['sets', 'games', 'both']).default('sets'),
   }),
 ])
 

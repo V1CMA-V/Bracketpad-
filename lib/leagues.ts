@@ -1,7 +1,14 @@
 export const leagueFormatLabels: Record<string, string> = {
   round_robin: 'Round robin',
-  divisions: 'Divisiones',
+  divisions: 'Grupos',
   ladder: 'Escalera',
+}
+
+/** Cómo se decide la clasificación de la liga. */
+export const leagueRankingBasisLabels: Record<string, string> = {
+  sets: 'Por sets ganados',
+  games: 'Por juegos ganados',
+  both: 'Por sets y juegos',
 }
 
 export const leagueStatusLabels: Record<string, string> = {

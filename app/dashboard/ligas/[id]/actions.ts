@@ -264,10 +264,12 @@ export type LeagueSettingsState = {
       | 'status'
       | 'startDate'
       | 'endDate'
+      | 'prizes'
       | 'format'
       | 'playKind'
       | 'bestOfSets'
-      | 'tiebreakAt',
+      | 'tiebreakAt'
+      | 'rankingBy',
       string[]
     >
   >
@@ -297,11 +299,13 @@ export async function updateLeague(
     status: formData.get('status'),
     startDate: (formData.get('startDate') as string) || undefined,
     endDate: (formData.get('endDate') as string) || undefined,
+    prizes: (formData.get('prizes') as string) || undefined,
     format: formData.get('format'),
     playKind: formData.get('playKind'),
     bestOfSets: (formData.get('bestOfSets') as string) || undefined,
     goldenPoint: formData.get('goldenPoint') === 'on',
     tiebreakAt: (formData.get('tiebreakAt') as string) || undefined,
+    rankingBy: formData.get('rankingBy'),
   })
   if (!parsed.success) {
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
@@ -321,6 +325,7 @@ export async function updateLeague(
       status: data.status,
       startDate: toDate(data.startDate),
       endDate: toDate(data.endDate),
+      prizes: data.prizes ?? null,
       // Campos estructurales: solo en borrador.
       ...(isDraft
         ? {
@@ -332,11 +337,13 @@ export async function updateLeague(
                   bestOfSets: data.bestOfSets,
                   goldenPoint: data.goldenPoint,
                   tiebreakAt: data.tiebreakAt,
+                  rankingBy: data.rankingBy,
                 },
                 update: {
                   bestOfSets: data.bestOfSets,
                   goldenPoint: data.goldenPoint,
                   tiebreakAt: data.tiebreakAt,
+                  rankingBy: data.rankingBy,
                 },
               },
             },

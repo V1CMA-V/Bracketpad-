@@ -53,9 +53,11 @@ export default async function LigaEditPage({
     playKind: league.playKind,
     startDate: toDateInput(league.startDate),
     endDate: toDateInput(league.endDate),
+    prizes: league.prizes ?? '',
     bestOfSets: cfg?.bestOfSets ?? 3,
     goldenPoint: cfg?.goldenPoint ?? true,
     tiebreakAt: cfg?.tiebreakAt ?? 6,
+    rankingBy: cfg?.rankingBy ?? 'sets',
   }
 
   return (

@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { compareStandings } from '@/lib/standings'
 import {
   leagueFormatLabels,
+  leagueRankingBasisLabels,
   leagueStatusLabels,
   standingTiebreakerLabels,
 } from '@/lib/leagues'
@@ -143,8 +144,16 @@ export default async function PublicLeaguePage({
     ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
     : ['set_diff', 'sets_won', 'game_diff']
 
+  const rankingBy = cfg?.rankingBy ?? 'sets'
+  const rankingLabel =
+    rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
+  // Columnas de la clasificación según el criterio: por sets (Sets/±Sets), por
+  // juegos (Juegos/±Jue) o ambos (Sets/±Sets/±Jue).
+  const showSets = rankingBy !== 'games'
+  const showGames = rankingBy === 'games'
+  const showGameDiff = rankingBy !== 'sets'
   const orderedStandings = [...league.standings].sort((a, b) =>
-    compareStandings(a, b, tiebreakers),
+    compareStandings(a, b, tiebreakers, rankingBy),
   )
 
   const rounds: PublicRound[] = league.rounds.map((round) => ({
@@ -239,7 +248,10 @@ export default async function PublicLeaguePage({
 
           <p className="mt-5 max-w-xl font-serif text-lg italic leading-relaxed text-ink/80">
             {formatRange(league.startDate, league.endDate)}. El ranking se decide
-            por sets ganados, con desempates por diferencia de sets y juegos.
+            por {rankingLabel}
+            {rankingBy === 'games'
+              ? '.'
+              : ', con desempates por diferencia de sets y juegos.'}
           </p>
 
           <dl className="mt-10 grid grid-cols-2 gap-x-8 gap-y-6 border-t border-border pt-8 md:grid-cols-4">
@@ -267,7 +279,7 @@ export default async function PublicLeaguePage({
               <div className="flex items-end justify-between gap-4 border-b border-border pb-3">
                 <div>
                   <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    Ranking · por sets ganados
+                    Ranking · por {rankingLabel}
                   </p>
                   <h2 className="mt-1.5 font-heading text-3xl text-ink">
                     Clasificación
@@ -292,9 +304,18 @@ export default async function PublicLeaguePage({
                         <th className="text-left">Jugador</th>
                         <th className="w-12 text-right">PJ</th>
                         <th className="w-16 text-right">G-P</th>
-                        <th className="w-16 text-right">Sets</th>
-                        <th className="w-16 text-right">±Sets</th>
-                        <th className="w-16 text-right">±Jue</th>
+                        {showSets && (
+                          <>
+                            <th className="w-16 text-right">Sets</th>
+                            <th className="w-16 text-right">±Sets</th>
+                          </>
+                        )}
+                        {showGames && (
+                          <th className="w-16 text-right">Juegos</th>
+                        )}
+                        {showGameDiff && (
+                          <th className="w-16 text-right">±Jue</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -335,23 +356,47 @@ export default async function PublicLeaguePage({
                             <td className="text-right font-mono tabular-nums">
                               {s.wins}-{s.losses}
                             </td>
-                            <td className="text-right font-mono tabular-nums">
-                              {s.setsFor}-{s.setsAgainst}
-                            </td>
-                            <td
-                              className={
-                                setDiff > 0
-                                  ? 'text-right font-mono text-forest tabular-nums'
-                                  : setDiff < 0
-                                    ? 'text-right font-mono text-terracotta tabular-nums'
-                                    : 'text-right font-mono text-muted-foreground tabular-nums'
-                              }
-                            >
-                              {fmt(setDiff)}
-                            </td>
-                            <td className="text-right font-mono text-muted-foreground tabular-nums">
-                              {fmt(gameDiff)}
-                            </td>
+                            {showSets && (
+                              <>
+                                <td className="text-right font-mono tabular-nums">
+                                  {s.setsFor}-{s.setsAgainst}
+                                </td>
+                                <td
+                                  className={
+                                    setDiff > 0
+                                      ? 'text-right font-mono text-forest tabular-nums'
+                                      : setDiff < 0
+                                        ? 'text-right font-mono text-terracotta tabular-nums'
+                                        : 'text-right font-mono text-muted-foreground tabular-nums'
+                                  }
+                                >
+                                  {fmt(setDiff)}
+                                </td>
+                              </>
+                            )}
+                            {showGames && (
+                              <td className="text-right font-mono tabular-nums">
+                                {s.gamesFor}-{s.gamesAgainst}
+                              </td>
+                            )}
+                            {showGameDiff && (
+                              <td
+                                className={
+                                  // En modo «juegos» ±Jue es el diferencial
+                                  // principal y se colorea; en «ambos» se queda
+                                  // gris como columna secundaria.
+                                  !showGames
+                                    ? 'text-right font-mono text-muted-foreground tabular-nums'
+                                    : gameDiff > 0
+                                      ? 'text-right font-mono text-forest tabular-nums'
+                                      : gameDiff < 0
+                                        ? 'text-right font-mono text-terracotta tabular-nums'
+                                        : 'text-right font-mono text-muted-foreground tabular-nums'
+                                }
+                              >
+                                {fmt(gameDiff)}
+                              </td>
+                            )}
                           </tr>
                         )
                       })}
@@ -450,6 +495,18 @@ export default async function PublicLeaguePage({
               </dl>
             </div>
 
+            {/* Premios */}
+            {league.prizes && (
+              <div className="rounded-sm border border-border bg-card p-5">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Premios
+                </p>
+                <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-ink">
+                  {league.prizes}
+                </p>
+              </div>
+            )}
+
             {/* Canchas */}
             <div className="rounded-sm border border-border bg-card p-5">
               <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -492,6 +549,10 @@ export default async function PublicLeaguePage({
                   <DataRow
                     label="Tie-break en"
                     value={`${cfg.tiebreakAt} juegos`}
+                  />
+                  <DataRow
+                    label="Clasificación"
+                    value={leagueRankingBasisLabels[rankingBy] ?? rankingBy}
                   />
                 </dl>
               ) : (

@@ -33,6 +33,7 @@ type EventData = {
   format: 'round_robin' | 'divisions' | 'ladder'
   playKind: 'individual' | 'pairs'
   bestOfSets: number
+  rankingBy: 'sets' | 'games' | 'both'
 }
 
 const initialData: EventData = {
@@ -42,9 +43,10 @@ const initialData: EventData = {
   endDate: '',
   location: '',
   description: '',
-  format: 'round_robin',
+  format: 'divisions',
   playKind: 'individual',
   bestOfSets: 3,
+  rankingBy: 'sets',
 }
 
 type StepDef = {
@@ -271,7 +273,7 @@ const eventTypes = [
     value: 'liga' as const,
     icon: ListOrdered,
     title: 'Liga',
-    desc: 'Temporada con jornadas y clasificación acumulada. Round robin, divisiones o escalera.',
+    desc: 'Temporada con jornadas y clasificación acumulada por grupos de nivel, con ascensos y descensos.',
   },
 ]
 
@@ -394,19 +396,9 @@ function StepIdentidad({ data, update }: StepProps) {
 
 const ligaFormats = [
   {
-    value: 'round_robin' as const,
-    title: 'Round robin',
-    desc: 'Todos contra todos · una clasificación.',
-  },
-  {
     value: 'divisions' as const,
-    title: 'Divisiones',
-    desc: 'Grupos por nivel con ascensos y descensos.',
-  },
-  {
-    value: 'ladder' as const,
-    title: 'Escalera',
-    desc: 'Retos entre jugadores · ranking dinámico.',
+    title: 'Grupos',
+    desc: 'Grupos de 4 por nivel con ascensos y descensos cada jornada.',
   },
 ]
 
@@ -456,7 +448,7 @@ function StepFormato({ data, update }: StepProps) {
       </StepSection>
 
       <StepSection num="3.2" title="Sistema de competición">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           {ligaFormats.map((f) => {
             const active = data.format === f.value
             return (
@@ -494,20 +486,45 @@ function StepFormato({ data, update }: StepProps) {
             max={5}
             hint="Sets por partido"
           />
-          <div className="rounded-xl border-l-2 border-ochre bg-card p-4">
-            <p className="font-mono text-[10px] uppercase tracking-widest text-ochre">
-              Cómo se sube y baja de cancha
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              La clasificación se decide por{' '}
-              <em className="italic text-foreground">sets ganados</em>. En cada
-              cancha de 4, quien gana más sets{' '}
-              <span className="text-foreground">sube</span> (en la cancha más
-              alta se mantiene) y quien gana menos{' '}
-              <span className="text-foreground">baja</span>; los otros dos se
-              mantienen para la siguiente jornada.
-            </p>
+          <div className="rounded-xl border border-border bg-card p-4">
+            <Field
+              label="Cómo se decide la clasificación"
+              hint={
+                data.rankingBy === 'games'
+                  ? 'Solo cuentan los juegos ganados; los sets se ignoran.'
+                  : data.rankingBy === 'both'
+                    ? 'Cuentan los sets ganados; la tabla muestra sets y juegos.'
+                    : 'Cuentan los sets ganados; los juegos sirven de desempate.'
+              }
+            >
+              <Segmented
+                value={data.rankingBy}
+                onChange={(v) => update({ rankingBy: v })}
+                options={[
+                  { value: 'sets', label: 'Por sets ganados' },
+                  { value: 'games', label: 'Por juegos ganados' },
+                  { value: 'both', label: 'Por sets y juegos' },
+                ]}
+              />
+            </Field>
           </div>
+        </div>
+        <div className="mt-4 rounded-xl border-l-2 border-ochre bg-card p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-ochre">
+            Cómo se sube y baja de cancha
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            La clasificación se decide por{' '}
+            <em className="italic text-foreground">
+              {data.rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'}
+            </em>
+            . En cada cancha de 4, quien gana más{' '}
+            {data.rankingBy === 'games' ? 'juegos' : 'sets'}{' '}
+            <span className="text-foreground">sube</span> (en la cancha más alta
+            se mantiene) y quien gana menos{' '}
+            <span className="text-foreground">baja</span>; los otros dos se
+            mantienen para la siguiente jornada.
+          </p>
         </div>
       </StepSection>
     </div>
@@ -537,7 +554,15 @@ function StepRevisar({ data }: StepProps) {
               ligaFormats.find((f) => f.value === data.format)?.title ?? '—',
           },
           { label: 'Sets por partido', value: `Al mejor de ${data.bestOfSets}` },
-          { label: 'Clasificación', value: 'Por sets ganados' },
+          {
+            label: 'Clasificación',
+            value:
+              data.rankingBy === 'games'
+                ? 'Por juegos ganados'
+                : data.rankingBy === 'both'
+                  ? 'Por sets y juegos'
+                  : 'Por sets ganados',
+          },
         ]
       : [
           { label: 'Tipo', value: 'Torneo' },
@@ -692,6 +717,7 @@ export function EventWizard() {
               format: data.format,
               playKind: data.playKind,
               bestOfSets: data.bestOfSets,
+              rankingBy: data.rankingBy,
             }
           : {
               type: 'torneo' as const,

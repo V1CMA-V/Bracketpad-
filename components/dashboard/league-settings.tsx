@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   leagueFormatLabels,
+  leagueRankingBasisLabels,
   leagueStatusLabels,
 } from '@/lib/leagues'
 import {
@@ -36,10 +37,17 @@ export type LeagueSettingsValues = {
   playKind: string
   startDate: string // "YYYY-MM-DD" o ""
   endDate: string
+  prizes: string
   bestOfSets: number
   goldenPoint: boolean
   tiebreakAt: number
+  rankingBy: string
 }
+
+// Por ahora el único formato disponible es «grupos» (antes «divisiones»).
+const formatOptions: [string, string][] = [
+  ['divisions', leagueFormatLabels.divisions],
+]
 
 function Field({
   label,
@@ -172,6 +180,25 @@ export function LeagueSettingsForm({
             />
           </Field>
         </div>
+
+        <Field
+          label="Premios"
+          htmlFor="ls-prizes"
+          error={state.fieldErrors?.prizes?.[0]}
+        >
+          <textarea
+            id="ls-prizes"
+            name="prizes"
+            rows={3}
+            defaultValue={values.prizes}
+            placeholder="Ej. El campeón de la clasificación se lleva una raqueta y bono de pista; el mejor de cada grupo, material deportivo…"
+            className={cn(fieldCls, 'h-auto py-2 leading-relaxed')}
+            aria-invalid={!!state.fieldErrors?.prizes}
+          />
+        </Field>
+        <p className="-mt-2 text-xs text-muted-foreground">
+          Texto libre. Se mostrará en la página pública de la liga.
+        </p>
       </fieldset>
 
       {/* ---- Configuración estructural (solo en borrador) ---- */}
@@ -203,6 +230,7 @@ export function LeagueSettingsForm({
             <input type="hidden" name="playKind" value={values.playKind} />
             <input type="hidden" name="bestOfSets" value={values.bestOfSets} />
             <input type="hidden" name="tiebreakAt" value={values.tiebreakAt} />
+            <input type="hidden" name="rankingBy" value={values.rankingBy} />
             {values.goldenPoint && (
               <input type="hidden" name="goldenPoint" value="on" />
             )}
@@ -218,11 +246,15 @@ export function LeagueSettingsForm({
             <select
               id="ls-format"
               name={isDraft ? 'format' : undefined}
-              defaultValue={values.format}
+              defaultValue={
+                formatOptions.some(([v]) => v === values.format)
+                  ? values.format
+                  : 'divisions'
+              }
               disabled={!isDraft}
               className={fieldCls}
             >
-              {Object.entries(leagueFormatLabels).map(([v, l]) => (
+              {formatOptions.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
                 </option>
@@ -283,7 +315,29 @@ export function LeagueSettingsForm({
               className={fieldCls}
             />
           </Field>
+
+          <Field label="Clasificación por" htmlFor="ls-ranking">
+            <select
+              id="ls-ranking"
+              name={isDraft ? 'rankingBy' : undefined}
+              defaultValue={values.rankingBy}
+              disabled={!isDraft}
+              className={fieldCls}
+            >
+              {Object.entries(leagueRankingBasisLabels).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          «Por juegos ganados» ignora los sets y ordena la clasificación solo
+          por juegos. «Por sets y juegos» ordena por sets, pero muestra ambas
+          columnas en la tabla.
+        </p>
 
         <label
           className={cn(

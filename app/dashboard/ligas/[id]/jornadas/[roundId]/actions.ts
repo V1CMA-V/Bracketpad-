@@ -220,6 +220,7 @@ export async function generateGroupsFromStandings(
           playKind: true,
           scoringConfig: {
             select: {
+              rankingBy: true,
               tiebreaker1: true,
               tiebreaker2: true,
               tiebreaker3: true,
@@ -278,6 +279,7 @@ export async function generateGroupsFromStandings(
   const tiebreakers = cfg
     ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
     : ['set_diff', 'sets_won', 'game_diff']
+  const rankingBy = cfg?.rankingBy ?? 'sets'
 
   const zero = {
     wins: 0,
@@ -295,7 +297,7 @@ export async function generateGroupsFromStandings(
       playerId: r.player.id,
       s: r.standing ?? zero,
     }))
-    .sort((a, b) => compareStandings(a.s, b.s, tiebreakers))
+    .sort((a, b) => compareStandings(a.s, b.s, tiebreakers, rankingBy))
     .map(({ registrationId, playerId }) => ({ registrationId, playerId }))
 
   // Grupos de 4 en orden de ranking: grupo 1 = mejores.
@@ -912,6 +914,7 @@ export async function closeRoundAndAdvance(
           playKind: true,
           scoringConfig: {
             select: {
+              rankingBy: true,
               tiebreaker1: true,
               tiebreaker2: true,
               tiebreaker3: true,
@@ -1047,6 +1050,7 @@ export async function closeRoundAndAdvance(
   const tiebreakers = cfg
     ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
     : ['set_diff', 'sets_won', 'game_diff']
+  const rankingBy = cfg?.rankingBy ?? 'sets'
 
   // Agrupa por grupo y comprueba que cada grupo tenga exactamente 4.
   const byGroup = new Map<number, GroupAcc[]>()
@@ -1085,7 +1089,7 @@ export async function closeRoundAndAdvance(
     // y van al fondo del grupo en orden estable.
     const present = members.filter((m) => !absent.has(m.playerId))
     const missing = members.filter((m) => absent.has(m.playerId))
-    present.sort((x, y) => compareStandings(x, y, tiebreakers))
+    present.sort((x, y) => compareStandings(x, y, tiebreakers, rankingBy))
     const ordered = [...present, ...missing]
     ordered.forEach((mem, i) => {
       const rank = i + 1
@@ -1158,6 +1162,7 @@ export async function closeRoundAndAdvance(
             standMap.get(x.registrationId) ?? zero,
             standMap.get(y.registrationId) ?? zero,
             tiebreakers,
+            rankingBy,
           ),
         )
         .map((m) => ({ registrationId: m.registrationId, playerId: m.playerId })),

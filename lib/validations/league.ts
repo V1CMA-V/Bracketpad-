@@ -29,6 +29,12 @@ export const updateLeagueSchema = z
     }),
     startDate: optionalDate,
     endDate: optionalDate,
+    // Premios (texto libre). Siempre editable; no afecta a la competición.
+    prizes: z
+      .string()
+      .trim()
+      .max(2000, 'La descripción de premios es demasiado larga.')
+      .optional(),
 
     // --- estructurales (solo se persisten en borrador) ---
     format: z.enum(['round_robin', 'divisions', 'ladder'], {
@@ -48,6 +54,8 @@ export const updateLeagueSchema = z
       .int()
       .min(1, 'Mínimo 1 juego.')
       .max(20, 'Máximo 20 juegos.'),
+    // Cómo se decide la clasificación: por sets, solo por juegos, o ambos.
+    rankingBy: z.enum(['sets', 'games', 'both']),
   })
   .refine(
     (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,

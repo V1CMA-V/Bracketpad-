@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma'
 import { compareStandings } from '@/lib/standings'
 import {
   leagueFormatLabels,
+  leagueRankingBasisLabels,
   leagueStatusLabels,
   leagueStatusStyles,
   standingTiebreakerLabels,
@@ -154,9 +155,17 @@ export default async function LigaDetailPage({
   // lateral anuncia). Sin configuración, se usan desempates por defecto.
   const rankingTiebreakers =
     tiebreakers.length > 0 ? tiebreakers : ['set_diff', 'sets_won', 'game_diff']
+  const rankingBy = cfg?.rankingBy ?? 'sets'
   const orderedStandings = [...league.standings].sort((a, b) =>
-    compareStandings(a, b, rankingTiebreakers),
+    compareStandings(a, b, rankingTiebreakers, rankingBy),
   )
+  const rankingLabel =
+    rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
+  // Columnas de la clasificación según el criterio: por sets (Sets/±Sets), por
+  // juegos (Juegos/±Jue) o ambos (Sets/±Sets/±Jue).
+  const showSets = rankingBy !== 'games'
+  const showGames = rankingBy === 'games'
+  const showGameDiff = rankingBy !== 'sets'
 
   return (
     <>
@@ -220,7 +229,7 @@ export default async function LigaDetailPage({
             </h1>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               {formatRange(league.startDate, league.endDate)} · El ranking se
-              decide por sets ganados.
+              decide por {rankingLabel}.
             </p>
           </div>
 
@@ -245,7 +254,7 @@ export default async function LigaDetailPage({
             {/* Clasificación */}
             <section>
               <ModuleHeader
-                eyebrow="Ranking · por sets ganados"
+                eyebrow={`Ranking · por ${rankingLabel}`}
                 title="Clasificación"
                 aside={`${league.standings.length} jugadores`}
               />
@@ -263,9 +272,18 @@ export default async function LigaDetailPage({
                         <th className="text-left">Jugador</th>
                         <th className="w-12 text-right">PJ</th>
                         <th className="w-16 text-right">G-P</th>
-                        <th className="w-16 text-right">Sets</th>
-                        <th className="w-16 text-right">±Sets</th>
-                        <th className="w-16 text-right">±Jue</th>
+                        {showSets && (
+                          <>
+                            <th className="w-16 text-right">Sets</th>
+                            <th className="w-16 text-right">±Sets</th>
+                          </>
+                        )}
+                        {showGames && (
+                          <th className="w-16 text-right">Juegos</th>
+                        )}
+                        {showGameDiff && (
+                          <th className="w-16 text-right">±Jue</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -305,24 +323,49 @@ export default async function LigaDetailPage({
                             <td className="text-right font-mono tabular-nums">
                               {s.wins}-{s.losses}
                             </td>
-                            <td className="text-right font-mono tabular-nums">
-                              {s.setsFor}-{s.setsAgainst}
-                            </td>
-                            <td
-                              className={cn(
-                                'text-right font-mono tabular-nums',
-                                setDiff > 0
-                                  ? 'text-forest'
-                                  : setDiff < 0
-                                    ? 'text-terracotta'
-                                    : 'text-muted-foreground',
-                              )}
-                            >
-                              {fmt(setDiff)}
-                            </td>
-                            <td className="text-right font-mono text-muted-foreground tabular-nums">
-                              {fmt(gameDiff)}
-                            </td>
+                            {showSets && (
+                              <>
+                                <td className="text-right font-mono tabular-nums">
+                                  {s.setsFor}-{s.setsAgainst}
+                                </td>
+                                <td
+                                  className={cn(
+                                    'text-right font-mono tabular-nums',
+                                    setDiff > 0
+                                      ? 'text-forest'
+                                      : setDiff < 0
+                                        ? 'text-terracotta'
+                                        : 'text-muted-foreground',
+                                  )}
+                                >
+                                  {fmt(setDiff)}
+                                </td>
+                              </>
+                            )}
+                            {showGames && (
+                              <td className="text-right font-mono tabular-nums">
+                                {s.gamesFor}-{s.gamesAgainst}
+                              </td>
+                            )}
+                            {showGameDiff && (
+                              <td
+                                className={cn(
+                                  'text-right font-mono tabular-nums',
+                                  // En modo «juegos» ±Jue es el diferencial
+                                  // principal y se colorea; en «ambos» se queda
+                                  // gris como columna secundaria.
+                                  !showGames
+                                    ? 'text-muted-foreground'
+                                    : gameDiff > 0
+                                      ? 'text-forest'
+                                      : gameDiff < 0
+                                        ? 'text-terracotta'
+                                        : 'text-muted-foreground',
+                                )}
+                              >
+                                {fmt(gameDiff)}
+                              </td>
+                            )}
                           </tr>
                         )
                       })}
@@ -376,6 +419,10 @@ export default async function LigaDetailPage({
                     value={cfg.goldenPoint ? 'Sí' : 'No'}
                   />
                   <DataRow label="Tie-break en" value={`${cfg.tiebreakAt} juegos`} />
+                  <DataRow
+                    label="Clasificación"
+                    value={leagueRankingBasisLabels[rankingBy] ?? rankingBy}
+                  />
                 </dl>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">
@@ -402,6 +449,29 @@ export default async function LigaDetailPage({
                     ))}
                   </ol>
                 </div>
+              )}
+            </div>
+
+            {/* Premios */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Premios
+              </p>
+              {league.prizes ? (
+                <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-foreground">
+                  {league.prizes}
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Sin premios definidos. Añádelos desde{' '}
+                  <Link
+                    href={`/dashboard/ligas/${league.id}/editar`}
+                    className="text-foreground underline underline-offset-2"
+                  >
+                    Editar liga
+                  </Link>
+                  .
+                </p>
               )}
             </div>
 

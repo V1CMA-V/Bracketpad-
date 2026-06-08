@@ -7,6 +7,10 @@ import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
+  leagueRoundStatusLabels,
+  leagueRoundStatusStyles,
+} from '@/lib/leagues'
+import {
   createRound,
   deleteRound,
   type RoundState,
@@ -23,6 +27,7 @@ export type RoundItem = {
   name: string | null
   dateLabel: string
   matchCount: number
+  status: string
 }
 
 function RoundRow({ leagueId, round }: { leagueId: string; round: RoundItem }) {
@@ -62,6 +67,22 @@ function RoundRow({ leagueId, round }: { leagueId: string; round: RoundItem }) {
             {round.dateLabel}
           </p>
         </div>
+        {(() => {
+          const st =
+            leagueRoundStatusStyles[round.status] ??
+            leagueRoundStatusStyles.draft
+          return (
+            <span
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest',
+                st.text,
+              )}
+            >
+              <span className={cn('size-1.5 rounded-full', st.dot)} />
+              {leagueRoundStatusLabels[round.status] ?? round.status}
+            </span>
+          )
+        })()}
         <span className="font-mono text-xs text-muted-foreground tabular-nums">
           {round.matchCount}{' '}
           {round.matchCount === 1 ? 'partido' : 'partidos'}

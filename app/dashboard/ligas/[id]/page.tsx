@@ -12,7 +12,7 @@ import {
   leagueStatusStyles,
   standingTiebreakerLabels,
 } from '@/lib/leagues'
-import { ArrowLeft, ArrowUpRight } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -186,6 +186,15 @@ export default async function LigaDetailPage({
               <ArrowUpRight className="size-4" strokeWidth={2} />
             </Link>
           </Button>
+          <Button
+            asChild
+            className="h-9 gap-1.5 rounded-md px-4 text-sm"
+          >
+            <Link href={`/dashboard/ligas/${league.id}/editar`}>
+              <Pencil className="size-4" strokeWidth={2} />
+              Editar liga
+            </Link>
+          </Button>
         </div>
       </DashboardTopbar>
 
@@ -347,6 +356,7 @@ export default async function LigaDetailPage({
                   ? dateFmt.format(round.scheduledDate)
                   : 'Sin fecha',
                 matchCount: round._count.matches,
+                status: round.status,
               }))}
             />
           </div>

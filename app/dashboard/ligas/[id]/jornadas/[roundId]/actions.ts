@@ -1163,9 +1163,10 @@ export async function closeRoundAndAdvance(
         .map((m) => ({ registrationId: m.registrationId, playerId: m.playerId })),
     )
 
-  // 1) Guarda el resultado de los slots de ESTA jornada (sets, rank, movimiento).
-  await prisma.$transaction(
-    slotUpdates.map((u) =>
+  // 1) Guarda el resultado de los slots de ESTA jornada (sets, rank, movimiento)
+  //    y marca la jornada como cerrada (queda bloqueada para edición).
+  await prisma.$transaction([
+    ...slotUpdates.map((u) =>
       prisma.leagueGroupSlot.update({
         where: {
           roundId_registrationId: { roundId, registrationId: u.registrationId },
@@ -1177,7 +1178,11 @@ export async function closeRoundAndAdvance(
         },
       }),
     ),
-  )
+    prisma.leagueRound.update({
+      where: { id: roundId },
+      data: { status: 'closed' },
+    }),
+  ])
 
   // 2) Crea o reutiliza (si está vacía) la jornada siguiente y genera sus grupos.
   const nextRoundId =

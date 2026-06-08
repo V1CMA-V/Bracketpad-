@@ -20,6 +20,24 @@ export function DashboardSidebar() {
     setOpen(false)
   }, [pathname, setOpen])
 
+  // Mientras el drawer está abierto (solo móvil): bloquea el scroll del fondo
+  // y permite cerrarlo con Escape. En `lg` el sidebar es estático y `open`
+  // permanece en false, así que este efecto no se activa.
+  useEffect(() => {
+    if (!open) return
+    const { body } = document
+    const previousOverflow = body.style.overflow
+    body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, setOpen])
+
   const clubSubtitle = club
     ? [club.city, `${club.courtCount} ${club.courtCount === 1 ? 'pista' : 'pistas'}`]
         .filter(Boolean)

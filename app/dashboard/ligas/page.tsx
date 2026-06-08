@@ -8,7 +8,7 @@ import {
   leagueStatusLabels,
   leagueStatusStyles,
 } from '@/lib/leagues'
-import { Plus } from 'lucide-react'
+import { Pencil, Plus } from 'lucide-react'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
@@ -32,7 +32,8 @@ function formatRange(start: Date | null, end: Date | null): string {
 /** Columnas de la tabla, aplicadas con `style` para un grid estable. */
 const tableRow = 'grid items-center gap-4'
 const tableGrid: React.CSSProperties = {
-  gridTemplateColumns: '36px minmax(0, 1.6fr) 120px 110px minmax(0, 1.2fr) 84px 84px',
+  gridTemplateColumns:
+    '36px minmax(0, 1.6fr) 120px 110px minmax(0, 1.2fr) 84px 84px 48px',
 }
 
 export default async function LigasPage() {
@@ -173,6 +174,7 @@ export default async function LigasPage() {
                     <span>Fechas</span>
                     <span className="text-right">Inscritos</span>
                     <span className="text-right">Jornadas</span>
+                    <span className="sr-only">Acciones</span>
                   </div>
 
                   <ul className="divide-y divide-border">
@@ -181,15 +183,20 @@ export default async function LigasPage() {
                         leagueStatusStyles[league.status] ??
                         leagueStatusStyles.draft
                       return (
-                        <li key={league.id}>
-                          <Link
-                            href={`/dashboard/ligas/${league.id}`}
+                        <li key={league.id} className="relative">
+                          <div
                             style={tableGrid}
                             className={cn(
                               tableRow,
                               'rounded-md px-3 py-4 transition-colors hover:bg-muted/50',
                             )}
                           >
+                          {/* Enlace extendido: toda la fila abre el detalle. */}
+                          <Link
+                            href={`/dashboard/ligas/${league.id}`}
+                            aria-label={`Abrir ${league.name}`}
+                            className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          />
                           <span className="font-serif text-xl text-muted-foreground/70 tabular-nums">
                             {String(i + 1).padStart(2, '0')}
                           </span>
@@ -230,7 +237,17 @@ export default async function LigasPage() {
                           <span className="text-right font-mono text-sm text-muted-foreground tabular-nums">
                             {league._count.rounds}
                           </span>
+
+                          {/* Acción editar, por encima del enlace de fila. */}
+                          <Link
+                            href={`/dashboard/ligas/${league.id}/editar`}
+                            aria-label={`Editar ${league.name}`}
+                            title="Editar liga"
+                            className="relative z-10 flex size-8 items-center justify-center justify-self-end rounded-md border border-border text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
+                          >
+                            <Pencil className="size-4" strokeWidth={2} />
                           </Link>
+                          </div>
                         </li>
                       )
                     })}

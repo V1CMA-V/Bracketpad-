@@ -68,6 +68,9 @@ async function getLeague(clubSlug: string, leagueId: string) {
         },
       },
       rounds: {
+        // Solo las jornadas publicadas o cerradas son visibles públicamente;
+        // los borradores quedan ocultos hasta que el club las publique.
+        where: { status: { in: ['published', 'closed'] } },
         orderBy: { roundNumber: 'asc' },
         include: {
           matches: {
@@ -178,7 +181,8 @@ export default async function PublicLeaguePage({
 
   const stats = [
     { label: 'Inscritos', value: String(league._count.registrations) },
-    { label: 'Jornadas', value: String(league._count.rounds) },
+    // Solo cuenta las jornadas visibles (publicadas/cerradas), no los borradores.
+    { label: 'Jornadas', value: String(rounds.length) },
     { label: 'Partidos', value: String(league._count.matches) },
     { label: 'Sets', value: cfg ? `Mejor de ${cfg.bestOfSets}` : '—' },
   ]

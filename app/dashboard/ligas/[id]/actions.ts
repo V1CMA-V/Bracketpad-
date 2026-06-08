@@ -6,7 +6,8 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
 import { registerPlayerSchema } from '@/lib/validations/registration'
-import { createRoundSchema } from '@/lib/validations/jornada'
+import { createRoundSchema, updateRoundSchema } from '@/lib/validations/jornada'
+import { updateLeagueSchema } from '@/lib/validations/league'
 
 export type RegistrationState = {
   success?: boolean
@@ -176,4 +177,176 @@ export async function deleteRound(roundId: string) {
   // Los partidos de la jornada quedan con leagueRoundId = null (onDelete: SetNull).
   await prisma.leagueRound.delete({ where: { id: round.id } })
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
+}
+
+/** Edita el nombre y la fecha de una jornada (no su estado). */
+export async function updateRound(
+  roundId: string,
+  _prevState: RoundState,
+  formData: FormData,
+): Promise<RoundState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true, status: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  // Una jornada cerrada queda bloqueada: ya no admite cambios de nombre/fecha.
+  if (round.status === 'closed') {
+    return {
+      error: 'La jornada está cerrada y ya no se puede modificar.',
+    }
+  }
+
+  const parsed = updateRoundSchema.safeParse({
+    name: (formData.get('name') as string) || undefined,
+    scheduledDate: (formData.get('scheduledDate') as string) || undefined,
+  })
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
+  }
+
+  await prisma.leagueRound.update({
+    where: { id: round.id },
+    data: {
+      name: parsed.data.name ?? null,
+      scheduledDate: parsed.data.scheduledDate
+        ? new Date(`${parsed.data.scheduledDate}T00:00:00`)
+        : null,
+    },
+  })
+
+  revalidatePath(`/dashboard/ligas/${round.leagueId}`)
+  revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${round.id}`)
+  return { success: true }
+}
+
+/** Cambia el estado de publicación de una jornada (draft/published/closed). */
+export async function setRoundStatus(
+  roundId: string,
+  status: 'draft' | 'published' | 'closed',
+): Promise<RoundState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+  if (!['draft', 'published', 'closed'].includes(status)) {
+    return { error: 'Estado no válido.' }
+  }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  await prisma.leagueRound.update({
+    where: { id: round.id },
+    data: { status },
+  })
+
+  revalidatePath(`/dashboard/ligas/${round.leagueId}`)
+  revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${round.id}`)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editar liga                                                               */
+/* -------------------------------------------------------------------------- */
+
+export type LeagueSettingsState = {
+  success?: boolean
+  error?: string
+  fieldErrors?: Partial<
+    Record<
+      | 'name'
+      | 'status'
+      | 'startDate'
+      | 'endDate'
+      | 'format'
+      | 'playKind'
+      | 'bestOfSets'
+      | 'tiebreakAt',
+      string[]
+    >
+  >
+}
+
+/** Convierte "YYYY-MM-DD" (o vacío) en un Date a medianoche, o null. */
+function toDate(value: string | undefined): Date | null {
+  return value ? new Date(`${value}T00:00:00`) : null
+}
+
+export async function updateLeague(
+  leagueId: string,
+  _prevState: LeagueSettingsState,
+  formData: FormData,
+): Promise<LeagueSettingsState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const league = await prisma.league.findFirst({
+    where: { id: leagueId, clubId: club.id },
+    select: { id: true, status: true },
+  })
+  if (!league) return { error: 'Liga no encontrada.' }
+
+  const parsed = updateLeagueSchema.safeParse({
+    name: formData.get('name'),
+    status: formData.get('status'),
+    startDate: (formData.get('startDate') as string) || undefined,
+    endDate: (formData.get('endDate') as string) || undefined,
+    format: formData.get('format'),
+    playKind: formData.get('playKind'),
+    bestOfSets: (formData.get('bestOfSets') as string) || undefined,
+    goldenPoint: formData.get('goldenPoint') === 'on',
+    tiebreakAt: (formData.get('tiebreakAt') as string) || undefined,
+  })
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
+  }
+
+  const data = parsed.data
+  // Una liga solo es «estructuralmente» editable mientras está en borrador.
+  // Si ya salió de borrador, ignoramos formato/tipo/puntuación para no
+  // invalidar partidos y clasificaciones existentes.
+  const isDraft = league.status === 'draft'
+
+  await prisma.league.update({
+    where: { id: league.id },
+    data: {
+      // Campos menores: siempre editables.
+      name: data.name,
+      status: data.status,
+      startDate: toDate(data.startDate),
+      endDate: toDate(data.endDate),
+      // Campos estructurales: solo en borrador.
+      ...(isDraft
+        ? {
+            format: data.format,
+            playKind: data.playKind,
+            scoringConfig: {
+              upsert: {
+                create: {
+                  bestOfSets: data.bestOfSets,
+                  goldenPoint: data.goldenPoint,
+                  tiebreakAt: data.tiebreakAt,
+                },
+                update: {
+                  bestOfSets: data.bestOfSets,
+                  goldenPoint: data.goldenPoint,
+                  tiebreakAt: data.tiebreakAt,
+                },
+              },
+            },
+          }
+        : {}),
+    },
+  })
+
+  revalidatePath(`/dashboard/ligas/${leagueId}`)
+  // La página pública también muestra estos datos.
+  revalidatePath(`/clubs/${club.slug}/l/${leagueId}`)
+  return { success: true }
 }

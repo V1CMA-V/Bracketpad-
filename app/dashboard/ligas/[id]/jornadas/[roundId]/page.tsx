@@ -10,6 +10,7 @@ import {
   type GroupRoster,
   type MatchItem,
 } from '@/components/dashboard/round-matches'
+import { RoundSettings } from '@/components/dashboard/round-settings'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
@@ -241,6 +242,20 @@ export default async function JornadaDetailPage({
             {bestOfSets} sets.
           </p>
         </section>
+
+        <div className="mt-8">
+          <RoundSettings
+            roundId={round.id}
+            roundNumber={round.roundNumber}
+            status={round.status}
+            name={round.name}
+            scheduledDate={
+              round.scheduledDate
+                ? round.scheduledDate.toISOString().slice(0, 10)
+                : ''
+            }
+          />
+        </div>
 
         <div className="mt-10 border-t border-border pt-8">
           <RoundMatches

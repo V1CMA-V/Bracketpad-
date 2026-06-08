@@ -288,11 +288,14 @@ enum StandingTiebreaker {
 }
 
 model LeagueRound {
-  id            String    @id @default(uuid())
+  id            String            @id @default(uuid())
   leagueId      String
   roundNumber   Int
   name          String?
-  scheduledDate DateTime? @db.Date
+  scheduledDate DateTime?         @db.Date
+  // draft: solo visible en el panel. published: visible en la página pública.
+  // closed: cerrada/finalizada, ya no admite cambios de nombre/fecha.
+  status        LeagueRoundStatus @default(draft)
 
   league     League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   matches    Match[]
@@ -300,6 +303,12 @@ model LeagueRound {
 
   @@unique([leagueId, roundNumber])
   @@map("league_round")
+}
+
+enum LeagueRoundStatus {
+  draft
+  published
+  closed
 }
 
 model LeagueRegistration {

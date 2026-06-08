@@ -11,6 +11,22 @@ export const leagueStatusLabels: Record<string, string> = {
   archived: 'Archivada',
 }
 
+export const leagueRoundStatusLabels: Record<string, string> = {
+  draft: 'No publicada',
+  published: 'Publicada',
+  closed: 'Cerrada',
+}
+
+/** Color por estado de jornada para badges/puntos en el panel. */
+export const leagueRoundStatusStyles: Record<
+  string,
+  { text: string; dot: string }
+> = {
+  draft: { text: 'text-muted-foreground', dot: 'bg-muted-foreground' },
+  published: { text: 'text-forest', dot: 'bg-forest' },
+  closed: { text: 'text-ochre', dot: 'bg-ochre' },
+}
+
 export const standingTiebreakerLabels: Record<string, string> = {
   head_to_head: 'Enfrentamiento directo',
   set_diff: 'Diferencia de sets',

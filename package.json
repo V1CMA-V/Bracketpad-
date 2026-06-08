@@ -36,10 +36,5 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "typescript": "^5"
-  },
-  "pnpm": {
-    "overrides": {
-      "kysely": "0.28.17"
-    }
   }
 }

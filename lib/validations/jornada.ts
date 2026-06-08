@@ -9,6 +9,10 @@ export const createRoundSchema = z.object({
     .optional(),
 })
 
+// Edición de una jornada: mismos campos que al crearla. El estado se cambia
+// con su propia acción, no desde este formulario.
+export const updateRoundSchema = createRoundSchema
+
 export const createMatchSchema = z.object({
   courtId: z.string().trim().optional(),
   // Grupo/nivel del partido: 1 = mejores, números mayores = niveles inferiores.

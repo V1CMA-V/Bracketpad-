@@ -2,9 +2,9 @@ import { Search } from 'lucide-react'
 import Link from 'next/link'
 import { headers } from 'next/headers'
 import { auth } from '@/auth'
-import { signOutAction } from '@/lib/actions/auth'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { UserMenu } from './user-menu'
 
 const links = [
   { label: 'Torneos', href: '/torneos', active: true },
@@ -66,32 +66,7 @@ export async function Header() {
           </div>
 
           {user ? (
-            <>
-              <form action={signOutAction}>
-                <Button
-                  type="submit"
-                  variant="outline"
-                  className="h-9 rounded-md border-foreground/15 px-4 text-sm"
-                >
-                  Salir
-                </Button>
-              </form>
-              {user.accountType === 'club_staff' ? (
-                <Button
-                  asChild
-                  className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90"
-                >
-                  <Link href="/dashboard">Ir al dashboard</Link>
-                </Button>
-              ) : (
-                <Button
-                  asChild
-                  className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90"
-                >
-                  <Link href="/cuenta">Ver perfil</Link>
-                </Button>
-              )}
-            </>
+            <UserMenu user={user} />
           ) : (
             <>
               <Button

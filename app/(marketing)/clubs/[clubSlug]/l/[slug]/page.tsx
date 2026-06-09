@@ -1,19 +1,28 @@
 import {
-  PublicRounds,
-  type PublicRound,
-} from '@/components/league/public-rounds'
-import { prisma } from '@/lib/prisma'
-import { compareStandings } from '@/lib/standings'
+  GroupStandings,
+  type GroupPlayerStat,
+  type GroupSetRow,
+  type GroupStandingRound,
+  type PublicGroup,
+} from '@/components/league/group-standings'
+import { type PublicRound } from '@/components/league/public-rounds'
+import {
+  StandingsTable,
+  type LeagueStandingRow,
+} from '@/components/league/standings-table'
+import { NO_SHOW_SETS } from '@/lib/league-rules'
 import {
   leagueFormatLabels,
   leagueRankingBasisLabels,
   leagueStatusLabels,
 } from '@/lib/leagues'
 import { formatMoney } from '@/lib/money'
+import { prisma } from '@/lib/prisma'
+import { compareStandings } from '@/lib/standings'
 import { Mail, MapPin, Phone, Ticket } from 'lucide-react'
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import type { Metadata } from 'next'
 
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
@@ -93,6 +102,24 @@ async function getLeague(clubSlug: string, leagueId: string) {
               sets: { orderBy: { setNumber: 'asc' } },
             },
           },
+          // Grupos resueltos de la jornada (posición, sets y ascenso/descenso).
+          // Solo se rellenan al cerrar la jornada.
+          groupSlots: {
+            orderBy: [{ groupNumber: 'asc' }, { rankInGroup: 'asc' }],
+            select: {
+              groupNumber: true,
+              rankInGroup: true,
+              movement: true,
+              attendance: true,
+              substituteName: true,
+              registration: {
+                select: {
+                  playerId: true,
+                  player: { select: { fullName: true } },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -142,8 +169,7 @@ export default async function PublicLeaguePage({
   const cfg = league.scoringConfig
 
   const rankingBy = cfg?.rankingBy ?? 'sets'
-  const rankingLabel =
-    rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
+  const rankingLabel = rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
   // Columnas de la clasificación según el criterio: por sets (Sets/±Sets), por
   // juegos (Juegos/±Jue) o ambos (Sets/±Sets/±Jue).
   const showSets = rankingBy !== 'games'
@@ -153,6 +179,20 @@ export default async function PublicLeaguePage({
   const orderedStandings = league.standings
     .filter((s) => s.registration.status !== 'withdrawn')
     .sort((a, b) => compareStandings(a, b, rankingBy))
+
+  // Filas serializables para la tabla de clasificación (con posición fijada).
+  const standingRows: LeagueStandingRow[] = orderedStandings.map((s, i) => ({
+    registrationId: s.registrationId,
+    rank: i + 1,
+    fullName: s.registration.player.fullName,
+    matchesPlayed: s.matchesPlayed,
+    wins: s.wins,
+    losses: s.losses,
+    setsFor: s.setsFor,
+    setsAgainst: s.setsAgainst,
+    gamesFor: s.gamesFor,
+    gamesAgainst: s.gamesAgainst,
+  }))
 
   const rounds: PublicRound[] = league.rounds.map((round) => ({
     id: round.id,
@@ -173,7 +213,9 @@ export default async function PublicLeaguePage({
         winnerSide: m.winnerSide,
         groupNumber: m.groupNumber,
         courtName: m.court?.name ?? null,
-        scheduledLabel: m.scheduledAt ? dateTimeFmt.format(m.scheduledAt) : null,
+        scheduledLabel: m.scheduledAt
+          ? dateTimeFmt.format(m.scheduledAt)
+          : null,
         sideA: side('A'),
         sideB: side('B'),
         sets: m.sets.map((s) => ({
@@ -185,6 +227,133 @@ export default async function PublicLeaguePage({
       }
     }),
   }))
+
+  // Clasificación por grupo, jornada a jornada. Las jornadas cerradas (más
+  // reciente primero) muestran la tarjeta con resultados; las jornadas
+  // publicadas aún no jugadas se muestran como «próximas» con la info vacía.
+  // Replica la tarjeta de grupo del panel, en versión pública de solo lectura:
+  // posición, sets, juegos y diferencia se calculan de los partidos del grupo;
+  // la posición y el ascenso/descenso ya vienen resueltos en cada slot al cerrar.
+  const noShowGamesAgainst = cfg?.noShowGamesAgainst ?? 9
+  const groupStandingRounds: GroupStandingRound[] = league.rounds
+    .filter((r) => r.groupSlots.length > 0)
+    .sort((a, b) => a.roundNumber - b.roundNumber)
+    .map((round) => {
+      const pending = round.status !== 'closed'
+      // Números de grupo presentes en la jornada, en orden.
+      const groupNumbers = [
+        ...new Set(round.groupSlots.map((s) => s.groupNumber)),
+      ].sort((a, b) => a - b)
+
+      const groups: PublicGroup[] = groupNumbers.map((groupNumber) => {
+        const slots = round.groupSlots.filter(
+          (s) => s.groupNumber === groupNumber,
+        )
+        const matches = round.matches
+          .filter((m) => m.groupNumber === groupNumber)
+          .sort((a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0))
+
+        const sidePlayers = (m: (typeof matches)[number], side: 'A' | 'B') =>
+          m.sides.find((x) => x.side === side)?.players ?? []
+
+        // Acumula sets y juegos por jugador presente a partir de cada set
+        // jugado (un set por partido en el formato individual rotativo).
+        const acc = new Map<
+          string,
+          {
+            setsWon: number
+            setsLost: number
+            gamesFor: number
+            gamesAgainst: number
+          }
+        >()
+        const absentIds = new Set(
+          slots
+            .filter((s) => s.attendance === 'absent')
+            .map((s) => s.registration.playerId),
+        )
+        for (const m of matches) {
+          const set = m.sets[0]
+          if (!set) continue
+          const add = (playerId: string, on: 'A' | 'B') => {
+            // El ausente no recibe lo que jugó su suplente.
+            if (absentIds.has(playerId)) return
+            const a = acc.get(playerId) ?? {
+              setsWon: 0,
+              setsLost: 0,
+              gamesFor: 0,
+              gamesAgainst: 0,
+            }
+            a.gamesFor += on === 'A' ? set.gamesA : set.gamesB
+            a.gamesAgainst += on === 'A' ? set.gamesB : set.gamesA
+            if (m.winnerSide === on) a.setsWon += 1
+            else if (m.winnerSide) a.setsLost += 1
+            acc.set(playerId, a)
+          }
+          for (const p of sidePlayers(m, 'A')) add(p.playerId, 'A')
+          for (const p of sidePlayers(m, 'B')) add(p.playerId, 'B')
+        }
+
+        // Filas de la clasificación. En jornadas cerradas se ordenan por la
+        // posición resuelta (rankInGroup) y traen sets/juegos/diferencia; en las
+        // próximas se listan sin resultados (todo vacío).
+        const players: GroupPlayerStat[] = slots.map((slot) => {
+          const pid = slot.registration.playerId
+          const absent = slot.attendance === 'absent'
+          const stat = acc.get(pid)
+          return {
+            key: pid,
+            rank: pending ? null : slot.rankInGroup,
+            name: slot.registration.player.fullName,
+            absent: pending ? false : absent,
+            note:
+              !pending && absent
+                ? slot.substituteName
+                  ? `No llegó · ${slot.substituteName}`
+                  : 'No llegó'
+                : null,
+            // El ausente pierde la jornada: forfeit de sus sets y la sanción de
+            // juegos en contra que fijó el club.
+            setsWon: pending ? null : absent ? 0 : (stat?.setsWon ?? 0),
+            setsLost: pending
+              ? null
+              : absent
+                ? NO_SHOW_SETS
+                : (stat?.setsLost ?? 0),
+            gamesFor: pending ? null : absent ? 0 : (stat?.gamesFor ?? 0),
+            gamesAgainst: pending
+              ? null
+              : absent
+                ? noShowGamesAgainst
+                : (stat?.gamesAgainst ?? 0),
+            movement: pending ? null : slot.movement,
+          }
+        })
+
+        const sets: GroupSetRow[] = matches.map((m) => ({
+          id: m.id,
+          label: `S${m.intraGroupOrder ?? '?'}`,
+          sideA: sidePlayers(m, 'A').map((p) => p.player.fullName),
+          sideB: sidePlayers(m, 'B').map((p) => p.player.fullName),
+          winnerSide: pending ? null : m.winnerSide,
+          scoreA: pending ? null : (m.sets[0]?.gamesA ?? null),
+          scoreB: pending ? null : (m.sets[0]?.gamesB ?? null),
+        }))
+
+        return { groupNumber, players, sets }
+      })
+
+      return {
+        id: round.id,
+        roundNumber: round.roundNumber,
+        label: round.name ?? `Jornada ${round.roundNumber}`,
+        dateLabel: round.scheduledDate
+          ? dayFmt.format(round.scheduledDate)
+          : null,
+        pending,
+        groups,
+      }
+    })
 
   const stats = [
     { label: 'Inscritos', value: String(league._count.registrations) },
@@ -245,8 +414,8 @@ export default async function PublicLeaguePage({
           </h1>
 
           <p className="mt-5 max-w-xl font-serif text-lg italic leading-relaxed text-ink/80">
-            {formatRange(league.startDate, league.endDate)}. El ranking se decide
-            por {rankingLabel}
+            {formatRange(league.startDate, league.endDate)}. El ranking se
+            decide por {rankingLabel}
             {rankingBy === 'games'
               ? '.'
               : ', con desempates por diferencia de sets y juegos.'}
@@ -294,130 +463,31 @@ export default async function PublicLeaguePage({
                   resultados de cada jornada.
                 </div>
               ) : (
-                <div className="mt-5 overflow-x-auto">
-                  <table className="w-full min-w-[620px] border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-border font-mono text-[10px] uppercase tracking-widest text-muted-foreground [&>th]:px-3 [&>th]:pb-2.5 [&>th]:font-normal">
-                        <th className="w-10 text-left">Pos</th>
-                        <th className="text-left">Jugador</th>
-                        <th className="w-12 text-right">PJ</th>
-                        <th className="w-16 text-right">G-P</th>
-                        {showSets && (
-                          <>
-                            <th className="w-16 text-right">Sets</th>
-                            <th className="w-16 text-right">±Sets</th>
-                          </>
-                        )}
-                        {showGames && (
-                          <th className="w-16 text-right">Juegos</th>
-                        )}
-                        {showGameDiff && (
-                          <th className="w-16 text-right">±Jue</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orderedStandings.map((s, i) => {
-                        const setDiff = s.setsFor - s.setsAgainst
-                        const gameDiff = s.gamesFor - s.gamesAgainst
-                        const fmt = (n: number) => `${n > 0 ? '+' : ''}${n}`
-                        return (
-                          <tr
-                            key={s.registrationId}
-                            className={
-                              i === 0
-                                ? 'border-b border-border bg-forest/5 [&>td]:px-3 [&>td]:py-3'
-                                : 'border-b border-border [&>td]:px-3 [&>td]:py-3'
-                            }
-                          >
-                            <td
-                              className={
-                                i === 0
-                                  ? 'font-heading text-lg text-forest tabular-nums'
-                                  : 'font-heading text-lg text-muted-foreground/70 tabular-nums'
-                              }
-                            >
-                              {i + 1}
-                            </td>
-                            <td
-                              className={
-                                i === 0
-                                  ? 'max-w-0 truncate font-medium text-ink'
-                                  : 'max-w-0 truncate text-ink'
-                              }
-                            >
-                              {s.registration.player.fullName}
-                            </td>
-                            <td className="text-right font-mono text-muted-foreground tabular-nums">
-                              {s.matchesPlayed}
-                            </td>
-                            <td className="text-right font-mono tabular-nums">
-                              {s.wins}-{s.losses}
-                            </td>
-                            {showSets && (
-                              <>
-                                <td className="text-right font-mono tabular-nums">
-                                  {s.setsFor}-{s.setsAgainst}
-                                </td>
-                                <td
-                                  className={
-                                    setDiff > 0
-                                      ? 'text-right font-mono text-forest tabular-nums'
-                                      : setDiff < 0
-                                        ? 'text-right font-mono text-terracotta tabular-nums'
-                                        : 'text-right font-mono text-muted-foreground tabular-nums'
-                                  }
-                                >
-                                  {fmt(setDiff)}
-                                </td>
-                              </>
-                            )}
-                            {showGames && (
-                              <td className="text-right font-mono tabular-nums">
-                                {s.gamesFor}-{s.gamesAgainst}
-                              </td>
-                            )}
-                            {showGameDiff && (
-                              <td
-                                className={
-                                  // En modo «juegos» ±Jue es el diferencial
-                                  // principal y se colorea; en «ambos» se queda
-                                  // gris como columna secundaria.
-                                  !showGames
-                                    ? 'text-right font-mono text-muted-foreground tabular-nums'
-                                    : gameDiff > 0
-                                      ? 'text-right font-mono text-forest tabular-nums'
-                                      : gameDiff < 0
-                                        ? 'text-right font-mono text-terracotta tabular-nums'
-                                        : 'text-right font-mono text-muted-foreground tabular-nums'
-                                }
-                              >
-                                {fmt(gameDiff)}
-                              </td>
-                            )}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <StandingsTable
+                  rows={standingRows}
+                  showSets={showSets}
+                  showGames={showGames}
+                  showGameDiff={showGameDiff}
+                />
               )}
             </section>
 
-            {/* Jornadas y partidos */}
-            <section>
-              <div className="border-b border-border pb-3">
-                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  Calendario · resultados
-                </p>
-                <h2 className="mt-1.5 font-heading text-3xl text-ink">
-                  Jornadas
-                </h2>
-              </div>
-              <div className="mt-6">
-                <PublicRounds rounds={rounds} />
-              </div>
-            </section>
+            {/* Clasificación por grupo (jornadas cerradas y próximas) */}
+            {groupStandingRounds.length > 0 && (
+              <section>
+                <div className="border-b border-border pb-3">
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Grupos · ascensos y descensos
+                  </p>
+                  <h2 className="mt-1.5 font-heading text-3xl text-ink">
+                    Clasificación por grupo
+                  </h2>
+                </div>
+                <div className="mt-6">
+                  <GroupStandings rounds={groupStandingRounds} />
+                </div>
+              </section>
+            )}
           </div>
 
           {/* Columna lateral */}
@@ -471,7 +541,10 @@ export default async function PublicLeaguePage({
                       className="size-3.5 shrink-0 text-muted-foreground"
                       strokeWidth={1.5}
                     />
-                    <a href={`tel:${club.phone}`} className="hover:text-terracotta">
+                    <a
+                      href={`tel:${club.phone}`}
+                      className="hover:text-terracotta"
+                    >
                       {club.phone}
                     </a>
                   </div>
@@ -563,7 +636,10 @@ export default async function PublicLeaguePage({
               </p>
               {cfg ? (
                 <dl className="mt-3 divide-y divide-border">
-                  <DataRow label="Sets" value={`Al mejor de ${cfg.bestOfSets}`} />
+                  <DataRow
+                    label="Sets"
+                    value={`Al mejor de ${cfg.bestOfSets}`}
+                  />
                   <DataRow
                     label="Punto de oro"
                     value={cfg.goldenPoint ? 'Sí' : 'No'}

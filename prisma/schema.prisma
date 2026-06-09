@@ -190,7 +190,9 @@ model Player {
 
   club                Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user                User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  leagueRegistrations LeagueRegistration[]
+  leagueRegistrations LeagueRegistration[]   @relation("LeagueRegPlayer")
+  // Inscripciones donde este jugador es el segundo de la pareja (ligas pairs).
+  leaguePartnerRegistrations LeagueRegistration[] @relation("LeagueRegPartner")
   teamMemberships     TournamentTeamMember[]
   matchSidePlayers    MatchSidePlayer[]
 
@@ -323,13 +325,16 @@ model LeagueRegistration {
   id        String             @id @default(uuid())
   leagueId  String
   playerId  String
+  // Segundo jugador de la pareja en ligas `pairs`. Null en ligas individuales.
+  partnerPlayerId String?
   division  String?
   seed      Int?
   status    RegistrationStatus @default(active)
   createdAt DateTime           @default(now())
 
-  league     League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  player     Player            @relation(fields: [playerId], references: [id])
+  league        League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  player        Player            @relation("LeagueRegPlayer", fields: [playerId], references: [id])
+  partnerPlayer Player?           @relation("LeagueRegPartner", fields: [partnerPlayerId], references: [id])
   standing   LeagueStanding?
   groupSlots LeagueGroupSlot[]
 

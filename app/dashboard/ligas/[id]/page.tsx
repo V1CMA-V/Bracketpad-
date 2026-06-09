@@ -12,6 +12,7 @@ import {
   leagueRankingBasisLabels,
   leagueStatusLabels,
   leagueStatusStyles,
+  teamLabel,
 } from '@/lib/leagues'
 import { ArrowLeft, ArrowUpRight, Pencil } from 'lucide-react'
 import Link from 'next/link'
@@ -115,7 +116,10 @@ export default async function LigaDetailPage({
       _count: { select: { registrations: true, rounds: true, matches: true } },
       registrations: {
         orderBy: { createdAt: 'asc' },
-        include: { player: { select: { fullName: true } } },
+        include: {
+          player: { select: { fullName: true } },
+          partnerPlayer: { select: { fullName: true } },
+        },
       },
       rounds: {
         orderBy: { roundNumber: 'asc' },
@@ -123,7 +127,12 @@ export default async function LigaDetailPage({
       },
       standings: {
         include: {
-          registration: { include: { player: { select: { fullName: true } } } },
+          registration: {
+            include: {
+              player: { select: { fullName: true } },
+              partnerPlayer: { select: { fullName: true } },
+            },
+          },
         },
       },
     },
@@ -139,9 +148,10 @@ export default async function LigaDetailPage({
 
   const status = leagueStatusStyles[league.status] ?? leagueStatusStyles.draft
   const cfg = league.scoringConfig
+  const isPairs = league.playKind === 'pairs'
 
   const stats = [
-    { label: 'Inscritos', value: league._count.registrations },
+    { label: isPairs ? 'Parejas' : 'Inscritos', value: league._count.registrations },
     { label: 'Jornadas', value: league._count.rounds },
     { label: 'Partidos', value: league._count.matches },
     { label: 'Sets', value: cfg ? `Mejor de ${cfg.bestOfSets}` : '—' },
@@ -250,7 +260,7 @@ export default async function LigaDetailPage({
               <ModuleHeader
                 eyebrow={`Ranking · por ${rankingLabel}`}
                 title="Clasificación"
-                aside={`${orderedStandings.length} jugadores`}
+                aside={`${orderedStandings.length} ${isPairs ? 'parejas' : 'jugadores'}`}
               />
               {orderedStandings.length === 0 ? (
                 <EmptyState>
@@ -263,7 +273,7 @@ export default async function LigaDetailPage({
                     <thead>
                       <tr className="border-b border-border font-mono text-[10px] uppercase tracking-widest text-muted-foreground [&>th]:px-3 [&>th]:pb-2.5 [&>th]:font-normal">
                         <th className="w-10 text-left">Pos</th>
-                        <th className="text-left">Jugador</th>
+                        <th className="text-left">{isPairs ? 'Pareja' : 'Jugador'}</th>
                         <th className="w-12 text-right">PJ</th>
                         <th className="w-16 text-right">G-P</th>
                         {showSets && (
@@ -309,7 +319,10 @@ export default async function LigaDetailPage({
                                 i === 0 && 'font-medium',
                               )}
                             >
-                              {s.registration.player.fullName}
+                              {teamLabel(
+                                s.registration.player.fullName,
+                                s.registration.partnerPlayer?.fullName,
+                              )}
                             </td>
                             <td className="text-right font-mono text-muted-foreground tabular-nums">
                               {s.matchesPlayed}
@@ -389,9 +402,13 @@ export default async function LigaDetailPage({
             {/* Inscripciones */}
             <LeagueRegistrations
               leagueId={league.id}
+              playKind={league.playKind}
               registrations={league.registrations.map((reg) => ({
                 id: reg.id,
-                name: reg.player.fullName,
+                name: teamLabel(
+                  reg.player.fullName,
+                  reg.partnerPlayer?.fullName,
+                ),
                 division: reg.division,
                 seed: reg.seed,
                 status: reg.status,

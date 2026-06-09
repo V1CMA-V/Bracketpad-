@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { registrationStatusLabels } from '@/lib/leagues'
 import {
+  registerPair,
   registerPlayer,
   removeRegistration,
   setRegistrationStatus,
@@ -118,14 +119,17 @@ export function LeagueRegistrations({
   leagueId,
   registrations,
   players,
+  playKind = 'individual',
 }: {
   leagueId: string
   registrations: RegistrationItem[]
   players: { id: string; name: string }[]
+  playKind?: 'individual' | 'pairs'
 }) {
+  const isPairs = playKind === 'pairs'
   const boundAction = useMemo(
-    () => registerPlayer.bind(null, leagueId),
-    [leagueId],
+    () => (isPairs ? registerPair : registerPlayer).bind(null, leagueId),
+    [leagueId, isPairs],
   )
   const [state, formAction, pending] = useActionState(boundAction, initialState)
   const formRef = useRef<HTMLFormElement>(null)
@@ -158,7 +162,7 @@ export function LeagueRegistrations({
           </h2>
         </div>
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-          {registrations.length} inscritos
+          {registrations.length} {isPairs ? 'parejas' : 'inscritos'}
         </span>
       </div>
 
@@ -173,29 +177,69 @@ export function LeagueRegistrations({
           <p className="mb-3 text-xs text-destructive">{state.error}</p>
         )}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          <div className="min-w-0 flex-1">
-            <input
-              ref={nameRef}
-              name="playerName"
-              type="text"
-              list={listId}
-              placeholder="Nombre del jugador…"
-              className={fieldCls}
-              aria-invalid={!!state.fieldErrors?.playerName}
-              autoComplete="off"
-              required
-            />
-            <datalist id={listId}>
-              {suggestions.map((p) => (
-                <option key={p.id} value={p.name} />
-              ))}
-            </datalist>
-            {state.fieldErrors?.playerName?.[0] && (
-              <p className="mt-1 text-xs text-destructive">
-                {state.fieldErrors.playerName[0]}
-              </p>
-            )}
-          </div>
+          {isPairs ? (
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <input
+                  ref={nameRef}
+                  name="player1Name"
+                  type="text"
+                  list={listId}
+                  placeholder="Jugador 1…"
+                  className={fieldCls}
+                  aria-invalid={!!state.fieldErrors?.player1Name}
+                  autoComplete="off"
+                  required
+                />
+                {state.fieldErrors?.player1Name?.[0] && (
+                  <p className="mt-1 text-xs text-destructive">
+                    {state.fieldErrors.player1Name[0]}
+                  </p>
+                )}
+              </div>
+              <div className="min-w-0">
+                <input
+                  name="player2Name"
+                  type="text"
+                  list={listId}
+                  placeholder="Jugador 2…"
+                  className={fieldCls}
+                  aria-invalid={!!state.fieldErrors?.player2Name}
+                  autoComplete="off"
+                  required
+                />
+                {state.fieldErrors?.player2Name?.[0] && (
+                  <p className="mt-1 text-xs text-destructive">
+                    {state.fieldErrors.player2Name[0]}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1">
+              <input
+                ref={nameRef}
+                name="playerName"
+                type="text"
+                list={listId}
+                placeholder="Nombre del jugador…"
+                className={fieldCls}
+                aria-invalid={!!state.fieldErrors?.playerName}
+                autoComplete="off"
+                required
+              />
+              {state.fieldErrors?.playerName?.[0] && (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.fieldErrors.playerName[0]}
+                </p>
+              )}
+            </div>
+          )}
+          <datalist id={listId}>
+            {suggestions.map((p) => (
+              <option key={p.id} value={p.name} />
+            ))}
+          </datalist>
           {/* Ancho fijo: cn() deja que tailwind-merge elimine el `w-full` de
               fieldCls, así estos campos no aplastan al de nombre. */}
           <div className="flex shrink-0 flex-wrap gap-3">
@@ -233,7 +277,8 @@ export function LeagueRegistrations({
       {registrations.length === 0 ? (
         <div className="mt-4 rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
           <p className="text-sm text-muted-foreground">
-            Todavía no hay inscripciones. Añade el primer jugador arriba.
+            Todavía no hay inscripciones. Añade la primera{' '}
+            {isPairs ? 'pareja' : 'jugador'} arriba.
           </p>
         </div>
       ) : (

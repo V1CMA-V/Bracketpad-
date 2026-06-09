@@ -9,10 +9,12 @@ import {
   type GroupRoster,
   type MatchItem,
 } from '@/components/dashboard/round-matches'
+import { PairRoundMatches } from '@/components/dashboard/pair-round-matches'
 import { RoundSettings } from '@/components/dashboard/round-settings'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
+import { teamLabel } from '@/lib/leagues'
 
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
@@ -88,7 +90,11 @@ export default async function JornadaDetailPage({
     prisma.leagueRegistration.findMany({
       where: { leagueId: id, status: 'active' },
       orderBy: { player: { fullName: 'asc' } },
-      select: { player: { select: { id: true, fullName: true } } },
+      select: {
+        id: true,
+        player: { select: { id: true, fullName: true } },
+        partnerPlayer: { select: { fullName: true } },
+      },
     }),
     prisma.court.findMany({
       where: { clubId: club.id, isActive: true },
@@ -137,6 +143,14 @@ export default async function JornadaDetailPage({
     id: r.player.id,
     name: r.player.fullName,
   }))
+
+  // Parejas para ligas por parejas: id = registrationId, name = etiqueta.
+  const teams = registrations.map((r) => ({
+    id: r.id,
+    name: teamLabel(r.player.fullName, r.partnerPlayer?.fullName),
+  }))
+
+  const isPairs = round.league.playKind === 'pairs'
 
   const matchItems: MatchItem[] = matches.map((m) => {
     const side = (s: 'A' | 'B') =>
@@ -244,18 +258,30 @@ export default async function JornadaDetailPage({
         </div>
 
         <div className="mt-10 border-t border-border pt-8">
-          <RoundMatches
-            roundId={roundId}
-            players={players}
-            courts={courts}
-            matches={matchItems}
-            rosters={rosters}
-            playKind={round.league.playKind}
-            bestOfSets={bestOfSets}
-            rankingBy={rankingBy}
-            noShowGamesAgainst={noShowGamesAgainst}
-            defaultDateTime={defaultDateTime}
-          />
+          {isPairs ? (
+            <PairRoundMatches
+              roundId={roundId}
+              teams={teams}
+              courts={courts}
+              matches={matchItems}
+              rosters={rosters}
+              rankingBy={rankingBy}
+              defaultDateTime={defaultDateTime}
+            />
+          ) : (
+            <RoundMatches
+              roundId={roundId}
+              players={players}
+              courts={courts}
+              matches={matchItems}
+              rosters={rosters}
+              playKind={round.league.playKind}
+              bestOfSets={bestOfSets}
+              rankingBy={rankingBy}
+              noShowGamesAgainst={noShowGamesAgainst}
+              defaultDateTime={defaultDateTime}
+            />
+          )}
         </div>
       </div>
     </>

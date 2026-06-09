@@ -1,3 +1,14 @@
+/**
+ * Etiqueta de una inscripción para mostrar. En ligas por parejas une los dos
+ * jugadores con « / »; en individuales devuelve el nombre del jugador.
+ */
+export function teamLabel(
+  playerName: string,
+  partnerName?: string | null,
+): string {
+  return partnerName ? `${playerName} / ${partnerName}` : playerName
+}
+
 export const leagueFormatLabels: Record<string, string> = {
   round_robin: 'Round robin',
   divisions: 'Grupos',

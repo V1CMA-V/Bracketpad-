@@ -6,14 +6,22 @@ import { z } from 'zod'
 
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
-import { registerPlayerSchema } from '@/lib/validations/registration'
+import {
+  registerPairSchema,
+  registerPlayerSchema,
+} from '@/lib/validations/registration'
 import { createRoundSchema, updateRoundSchema } from '@/lib/validations/jornada'
 import { updateLeagueSchema } from '@/lib/validations/league'
 
 export type RegistrationState = {
   success?: boolean
   error?: string
-  fieldErrors?: Partial<Record<'playerName' | 'division' | 'seed', string[]>>
+  fieldErrors?: Partial<
+    Record<
+      'playerName' | 'player1Name' | 'player2Name' | 'division' | 'seed',
+      string[]
+    >
+  >
 }
 
 export async function registerPlayer(
@@ -28,10 +36,15 @@ export async function registerPlayer(
 
   const league = await prisma.league.findFirst({
     where: { id: leagueId, clubId: club.id },
-    select: { id: true },
+    select: { id: true, playKind: true },
   })
   if (!league) {
     return { error: 'Liga no encontrada.' }
+  }
+  if (league.playKind === 'pairs') {
+    return {
+      error: 'Esta liga es por parejas: inscribe una pareja, no un jugador.',
+    }
   }
 
   const parsed = registerPlayerSchema.safeParse({
@@ -70,6 +83,90 @@ export async function registerPlayer(
     data: {
       leagueId,
       playerId: player.id,
+      division: division ?? null,
+      seed: seed ?? null,
+      standing: {
+        create: { leagueId, division: division ?? null },
+      },
+    },
+  })
+
+  revalidatePath(`/dashboard/ligas/${leagueId}`)
+  return { success: true }
+}
+
+/** Busca un jugador del club por nombre o lo crea. */
+async function findOrCreatePlayer(clubId: string, fullName: string) {
+  const existing = await prisma.player.findFirst({
+    where: { clubId, fullName },
+    select: { id: true },
+  })
+  if (existing) return existing
+  return prisma.player.create({
+    data: { clubId, fullName },
+    select: { id: true },
+  })
+}
+
+/** Inscribe una pareja fija (dos jugadores) en una liga por parejas. */
+export async function registerPair(
+  leagueId: string,
+  _prevState: RegistrationState,
+  formData: FormData,
+): Promise<RegistrationState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const league = await prisma.league.findFirst({
+    where: { id: leagueId, clubId: club.id },
+    select: { id: true, playKind: true },
+  })
+  if (!league) return { error: 'Liga no encontrada.' }
+  if (league.playKind !== 'pairs') {
+    return { error: 'Esta liga es individual: inscribe un jugador, no una pareja.' }
+  }
+
+  const parsed = registerPairSchema.safeParse({
+    player1Name: formData.get('player1Name'),
+    player2Name: formData.get('player2Name'),
+    division: (formData.get('division') as string) || undefined,
+    seed: (formData.get('seed') as string) || undefined,
+  })
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
+  }
+
+  const { player1Name, player2Name, division, seed } = parsed.data
+  if (player1Name.toLowerCase() === player2Name.toLowerCase()) {
+    return { error: 'Los dos jugadores de la pareja deben ser distintos.' }
+  }
+
+  const player1 = await findOrCreatePlayer(club.id, player1Name)
+  const player2 = await findOrCreatePlayer(club.id, player2Name)
+
+  // Ninguno de los dos puede estar ya inscrito en la liga (como titular o
+  // compañero de otra pareja).
+  const clash = await prisma.leagueRegistration.findFirst({
+    where: {
+      leagueId,
+      OR: [
+        { playerId: { in: [player1.id, player2.id] } },
+        { partnerPlayerId: { in: [player1.id, player2.id] } },
+      ],
+    },
+    select: { id: true },
+  })
+  if (clash) {
+    return {
+      error: 'Alguno de los dos jugadores ya está inscrito en esta liga.',
+    }
+  }
+
+  await prisma.leagueRegistration.create({
+    data: {
+      leagueId,
+      playerId: player1.id,
+      partnerPlayerId: player2.id,
       division: division ?? null,
       seed: seed ?? null,
       standing: {

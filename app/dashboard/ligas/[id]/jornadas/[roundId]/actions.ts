@@ -7,7 +7,11 @@ import { z } from 'zod'
 import { Prisma } from '@/generated/client'
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
-import { createGroupSchema, createMatchSchema } from '@/lib/validations/jornada'
+import {
+  createGroupSchema,
+  createMatchSchema,
+  createPairGroupSchema,
+} from '@/lib/validations/jornada'
 import { MAX_GAMES_PER_SET } from '@/lib/league-rules'
 import { compareStandings, recomputeStandings } from '@/lib/standings'
 
@@ -16,7 +20,20 @@ export type MatchState = {
   error?: string
   fieldErrors?: Partial<
     Record<
-      'a1' | 'b1' | 'scheduledAt' | 'groupNumber' | 'p1' | 'p2' | 'p3' | 'p4',
+      | 'a1'
+      | 'b1'
+      | 'scheduledAt'
+      | 'groupNumber'
+      | 'p1'
+      | 'p2'
+      | 'p3'
+      | 'p4'
+      | 't1'
+      | 't2'
+      | 't3'
+      | 't4'
+      | 'courtAId'
+      | 'courtBId',
       string[]
     >
   >
@@ -190,6 +207,122 @@ async function persistGroups(
       }
     })
   })
+
+  await prisma.$transaction(
+    [
+      prisma.match.createMany({ data: matchesData }),
+      prisma.matchSide.createMany({ data: sidesData }),
+      prisma.matchSidePlayer.createMany({ data: playersData }),
+      prisma.leagueGroupSlot.createMany({ data: slotsData }),
+    ],
+    { timeout: 15000 },
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Parejas: grupos de 4 parejas en 2 canchas (todos contra todos a un set)    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Los 6 enfrentamientos de un grupo de 4 parejas: cada pareja juega una vez
+ * contra cada una de las otras tres. Se organizan en 3 rondas de 2 partidos
+ * simultáneos (cancha A = órdenes impares, cancha B = pares):
+ *  R1: 1·2 (A) · 3·4 (B)  ·  R2: 1·3 (A) · 2·4 (B)  ·  R3: 1·4 (A) · 2·3 (B)
+ */
+function rotatingTeamPairings(): {
+  a: number
+  b: number
+  court: 'A' | 'B'
+  order: number
+}[] {
+  const rounds: [number, number][][] = [
+    [
+      [0, 1],
+      [2, 3],
+    ],
+    [
+      [0, 2],
+      [1, 3],
+    ],
+    [
+      [0, 3],
+      [1, 2],
+    ],
+  ]
+  const out: { a: number; b: number; court: 'A' | 'B'; order: number }[] = []
+  rounds.forEach((round, ri) => {
+    round.forEach(([a, b], ci) => {
+      out.push({
+        a,
+        b,
+        court: ci === 0 ? 'A' : 'B',
+        order: ri * 2 + ci + 1,
+      })
+    })
+  })
+  return out
+}
+
+/** Una pareja en un grupo: su inscripción y los ids de sus dos jugadores. */
+type PairMember = { registrationId: string; playerIds: string[] }
+
+/**
+ * Persiste grupos de 4 parejas creando sus 6 partidos (un set c/u, repartidos
+ * en las 2 canchas del grupo) y los `LeagueGroupSlot`. Análogo a `persistGroups`
+ * del formato individual: agrupa en 4 `createMany` para no agotar la transacción.
+ */
+async function persistPairGroups(
+  clubId: string,
+  leagueId: string,
+  roundId: string,
+  groups: {
+    groupNumber: number
+    courtAId: string
+    courtBId: string
+    members: PairMember[]
+    scheduledAt?: Date | null
+  }[],
+) {
+  const matchesData: Prisma.MatchCreateManyInput[] = []
+  const sidesData: Prisma.MatchSideCreateManyInput[] = []
+  const playersData: Prisma.MatchSidePlayerCreateManyInput[] = []
+  const slotsData: Prisma.LeagueGroupSlotCreateManyInput[] = []
+
+  for (const group of groups) {
+    for (const member of group.members) {
+      slotsData.push({
+        roundId,
+        groupNumber: group.groupNumber,
+        registrationId: member.registrationId,
+      })
+    }
+
+    for (const { a, b, court, order } of rotatingTeamPairings()) {
+      const matchId = randomUUID()
+      matchesData.push({
+        id: matchId,
+        clubId,
+        contextType: 'league',
+        leagueId,
+        leagueRoundId: roundId,
+        groupNumber: group.groupNumber,
+        intraGroupOrder: order,
+        courtId: court === 'A' ? group.courtAId : group.courtBId,
+        scheduledAt: group.scheduledAt ?? null,
+        status: 'scheduled',
+      })
+      for (const { side, member } of [
+        { side: 'A' as const, member: group.members[a] },
+        { side: 'B' as const, member: group.members[b] },
+      ]) {
+        const sideId = randomUUID()
+        sidesData.push({ id: sideId, matchId, side })
+        for (const playerId of member.playerIds) {
+          playersData.push({ matchSideId: sideId, playerId })
+        }
+      }
+    }
+  }
 
   await prisma.$transaction(
     [
@@ -436,6 +569,310 @@ export async function createGroup(
     ],
     { timeout: 15000 },
   )
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Crear un grupo de 4 parejas (genera los 6 partidos a un set)               */
+/* -------------------------------------------------------------------------- */
+
+export async function createPairGroup(
+  roundId: string,
+  _prevState: MatchState,
+  formData: FormData,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true, league: { select: { playKind: true } } },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round.league.playKind !== 'pairs') {
+    return { error: 'Los grupos de parejas solo aplican a ligas por parejas.' }
+  }
+
+  const parsed = createPairGroupSchema.safeParse({
+    courtAId: (formData.get('courtAId') as string) || undefined,
+    courtBId: (formData.get('courtBId') as string) || undefined,
+    groupNumber: (formData.get('groupNumber') as string) || undefined,
+    scheduledAt: (formData.get('scheduledAt') as string) || undefined,
+    t1: formData.get('t1'),
+    t2: formData.get('t2'),
+    t3: formData.get('t3'),
+    t4: formData.get('t4'),
+  })
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
+  }
+
+  const { courtAId, courtBId, scheduledAt } = parsed.data
+  if (courtAId === courtBId) {
+    return { fieldErrors: { courtBId: ['Las dos canchas deben ser distintas.'] } }
+  }
+  const regIds = [parsed.data.t1, parsed.data.t2, parsed.data.t3, parsed.data.t4]
+  if (new Set(regIds).size !== 4) {
+    return { error: 'Un grupo debe tener 4 parejas distintas.' }
+  }
+
+  // Las 2 canchas deben ser del club.
+  const courts = await prisma.court.findMany({
+    where: { id: { in: [courtAId, courtBId] }, clubId: club.id },
+    select: { id: true },
+  })
+  if (courts.length !== 2) return { error: 'Cancha no válida.' }
+
+  // Las 4 inscripciones deben ser parejas activas de esta liga.
+  const regs = await prisma.leagueRegistration.findMany({
+    where: { id: { in: regIds }, leagueId: round.leagueId, status: 'active' },
+    select: { id: true, playerId: true, partnerPlayerId: true },
+  })
+  if (regs.length !== 4) {
+    return { error: 'Hay parejas que no están inscritas en la liga.' }
+  }
+
+  // Ninguna pareja puede estar ya en otro grupo de esta jornada.
+  const taken = await prisma.leagueGroupSlot.count({
+    where: { roundId, registrationId: { in: regIds } },
+  })
+  if (taken > 0) {
+    return { error: 'Alguna pareja ya pertenece a un grupo de esta jornada.' }
+  }
+
+  // Número de grupo: el indicado (si está libre) o el siguiente disponible.
+  let groupNumber = parsed.data.groupNumber ?? null
+  if (groupNumber != null) {
+    const used = await prisma.match.count({
+      where: { leagueRoundId: roundId, groupNumber },
+    })
+    if (used > 0) {
+      return {
+        fieldErrors: {
+          groupNumber: [`El grupo ${groupNumber} ya existe en esta jornada.`],
+        },
+      }
+    }
+  } else {
+    const agg = await prisma.match.aggregate({
+      where: { leagueRoundId: roundId },
+      _max: { groupNumber: true },
+    })
+    groupNumber = (agg._max.groupNumber ?? 0) + 1
+  }
+
+  // Ordena los miembros según el orden elegido en el formulario (t1..t4).
+  const byId = new Map(regs.map((r) => [r.id, r]))
+  const members: PairMember[] = regIds.map((id) => {
+    const r = byId.get(id)!
+    return {
+      registrationId: r.id,
+      playerIds: [r.playerId, r.partnerPlayerId].filter(
+        (x): x is string => !!x,
+      ),
+    }
+  })
+
+  await persistPairGroups(club.id, round.leagueId, round.id, [
+    {
+      groupNumber,
+      courtAId,
+      courtBId,
+      members,
+      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+    },
+  ])
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Autogenerar grupos de parejas desde la clasificación                       */
+/* -------------------------------------------------------------------------- */
+
+export async function generatePairGroupsFromStandings(
+  roundId: string,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: {
+      id: true,
+      leagueId: true,
+      league: {
+        select: {
+          playKind: true,
+          scoringConfig: { select: { rankingBy: true } },
+        },
+      },
+      _count: { select: { matches: true } },
+    },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round.league.playKind !== 'pairs') {
+    return {
+      error:
+        'La autogeneración de grupos de parejas solo está disponible en ligas por parejas.',
+    }
+  }
+  if (round._count.matches > 0) {
+    return {
+      error:
+        'La jornada ya tiene partidos. Elimínalos antes de autogenerar los grupos.',
+    }
+  }
+
+  // Se necesitan al menos 2 canchas activas para repartir cada grupo.
+  const courts = await prisma.court.findMany({
+    where: { clubId: club.id, isActive: true },
+    orderBy: { name: 'asc' },
+    select: { id: true },
+  })
+  if (courts.length < 2) {
+    return {
+      error:
+        'Se necesitan al menos 2 canchas activas para autogenerar los grupos de parejas.',
+    }
+  }
+
+  const regs = await prisma.leagueRegistration.findMany({
+    where: { leagueId: round.leagueId, status: 'active' },
+    orderBy: [{ seed: 'asc' }, { player: { fullName: 'asc' } }],
+    select: {
+      id: true,
+      playerId: true,
+      partnerPlayerId: true,
+      standing: {
+        select: {
+          wins: true,
+          losses: true,
+          setsFor: true,
+          setsAgainst: true,
+          gamesFor: true,
+          gamesAgainst: true,
+        },
+      },
+    },
+  })
+
+  if (regs.length < 4 || regs.length % 4 !== 0) {
+    return {
+      error: `El formato por parejas requiere grupos de 4: el número de parejas activas debe ser múltiplo de 4 (actualmente ${regs.length}).`,
+    }
+  }
+
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+  const zero = {
+    wins: 0,
+    losses: 0,
+    setsFor: 0,
+    setsAgainst: 0,
+    gamesFor: 0,
+    gamesAgainst: 0,
+  }
+
+  const ordered = regs
+    .map((r) => ({
+      registrationId: r.id,
+      playerIds: [r.playerId, r.partnerPlayerId].filter(
+        (x): x is string => !!x,
+      ),
+      s: r.standing ?? zero,
+    }))
+    .sort((a, b) => compareStandings(a.s, b.s, rankingBy))
+
+  // Grupos de 4 por ranking; a cada grupo se le asignan 2 canchas de forma
+  // cíclica entre las canchas activas del club.
+  const groups: {
+    groupNumber: number
+    courtAId: string
+    courtBId: string
+    members: PairMember[]
+  }[] = []
+  for (let i = 0; i < ordered.length; i += 4) {
+    const gi = i / 4
+    groups.push({
+      groupNumber: gi + 1,
+      courtAId: courts[(gi * 2) % courts.length].id,
+      courtBId: courts[(gi * 2 + 1) % courts.length].id,
+      members: ordered.slice(i, i + 4).map(({ registrationId, playerIds }) => ({
+        registrationId,
+        playerIds,
+      })),
+    })
+  }
+
+  await persistPairGroups(club.id, round.leagueId, round.id, groups)
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editar un grupo de parejas (horario + reasignar las 2 canchas)             */
+/* -------------------------------------------------------------------------- */
+
+export async function updatePairGroupDetails(
+  roundId: string,
+  groupNumber: number,
+  _prevState: MatchState,
+  formData: FormData,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: { id: true, leagueId: true },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+
+  const raw = ((formData.get('scheduledAt') as string) || '').trim()
+  if (raw && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) {
+    return { fieldErrors: { scheduledAt: ['Fecha y hora inválidas.'] } }
+  }
+
+  const courtAId = ((formData.get('courtAId') as string) || '').trim()
+  const courtBId = ((formData.get('courtBId') as string) || '').trim()
+  if (!courtAId || !courtBId) {
+    return { error: 'Selecciona las dos canchas del grupo.' }
+  }
+  if (courtAId === courtBId) {
+    return { fieldErrors: { courtBId: ['Las dos canchas deben ser distintas.'] } }
+  }
+  const courts = await prisma.court.findMany({
+    where: { id: { in: [courtAId, courtBId] }, clubId: club.id },
+    select: { id: true },
+  })
+  if (courts.length !== 2) return { error: 'Cancha no válida.' }
+
+  const when = raw ? new Date(raw) : null
+  // Cancha A = órdenes impares (1,3,5); cancha B = pares (2,4,6).
+  await prisma.$transaction([
+    prisma.match.updateMany({
+      where: {
+        leagueRoundId: roundId,
+        groupNumber,
+        clubId: club.id,
+        intraGroupOrder: { in: [1, 3, 5] },
+      },
+      data: { scheduledAt: when, courtId: courtAId },
+    }),
+    prisma.match.updateMany({
+      where: {
+        leagueRoundId: roundId,
+        groupNumber,
+        clubId: club.id,
+        intraGroupOrder: { in: [2, 4, 6] },
+      },
+      data: { scheduledAt: when, courtId: courtBId },
+    }),
+  ])
 
   revalidateRound(round.leagueId, round.id)
   return { success: true }

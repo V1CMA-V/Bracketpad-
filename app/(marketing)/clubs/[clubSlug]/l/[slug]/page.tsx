@@ -15,6 +15,7 @@ import {
   leagueFormatLabels,
   leagueRankingBasisLabels,
   leagueStatusLabels,
+  teamLabel,
 } from '@/lib/leagues'
 import { formatMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
@@ -74,7 +75,12 @@ async function getLeague(clubSlug: string, leagueId: string) {
       _count: { select: { registrations: true, rounds: true, matches: true } },
       standings: {
         include: {
-          registration: { include: { player: { select: { fullName: true } } } },
+          registration: {
+            include: {
+              player: { select: { fullName: true } },
+              partnerPlayer: { select: { fullName: true } },
+            },
+          },
         },
       },
       rounds: {
@@ -116,6 +122,7 @@ async function getLeague(clubSlug: string, leagueId: string) {
                 select: {
                   playerId: true,
                   player: { select: { fullName: true } },
+                  partnerPlayer: { select: { fullName: true } },
                 },
               },
             },
@@ -167,6 +174,7 @@ export default async function PublicLeaguePage({
   const { club, league, courts } = data
 
   const cfg = league.scoringConfig
+  const isPairs = league.playKind === 'pairs'
 
   const rankingBy = cfg?.rankingBy ?? 'sets'
   const rankingLabel = rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
@@ -184,7 +192,10 @@ export default async function PublicLeaguePage({
   const standingRows: LeagueStandingRow[] = orderedStandings.map((s, i) => ({
     registrationId: s.registrationId,
     rank: i + 1,
-    fullName: s.registration.player.fullName,
+    fullName: teamLabel(
+      s.registration.player.fullName,
+      s.registration.partnerPlayer?.fullName,
+    ),
     matchesPlayed: s.matchesPlayed,
     wins: s.wins,
     losses: s.losses,
@@ -304,7 +315,10 @@ export default async function PublicLeaguePage({
           return {
             key: pid,
             rank: pending ? null : slot.rankInGroup,
-            name: slot.registration.player.fullName,
+            name: teamLabel(
+              slot.registration.player.fullName,
+              slot.registration.partnerPlayer?.fullName,
+            ),
             absent: pending ? false : absent,
             note:
               !pending && absent
@@ -453,7 +467,7 @@ export default async function PublicLeaguePage({
                   </h2>
                 </div>
                 <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  {orderedStandings.length} jugadores
+                  {orderedStandings.length} {isPairs ? 'parejas' : 'jugadores'}
                 </span>
               </div>
 

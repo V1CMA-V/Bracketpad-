@@ -61,6 +61,13 @@ const movementLabel: Record<'up' | 'down' | 'stay', string> = {
   stay: 'Mantiene',
 }
 
+// Chip de movimiento (móvil): fondo tenue + color por dirección.
+const movementChipClass: Record<'up' | 'down' | 'stay', string> = {
+  up: 'bg-forest/10 text-forest',
+  down: 'bg-terracotta/10 text-terracotta',
+  stay: 'bg-muted text-muted-foreground',
+}
+
 /**
  * Clasificación por grupo con las jornadas en pestañas: el jugador cambia entre
  * jornadas (cerradas y próximas) sin recargar. Por defecto se muestra la última
@@ -231,7 +238,7 @@ function GroupCard({
             </span>
           )}
         </h4>
-        <p className="mt-1 truncate text-sm text-muted-foreground">
+        <p className="mt-1 text-sm leading-snug text-muted-foreground">
           {group.players.map((p, i) => (
             <span key={p.key}>
               {i > 0 && ' · '}
@@ -243,8 +250,8 @@ function GroupCard({
         </p>
       </div>
 
-      {/* Clasificación del grupo */}
-      <div className="mt-4 overflow-hidden rounded-lg border border-border">
+      {/* Clasificación del grupo · tabla (≥ sm) */}
+      <div className="mt-4 hidden overflow-hidden rounded-lg border border-border sm:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-cream font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -340,36 +347,117 @@ function GroupCard({
         </table>
       </div>
 
-      {/* Sets jugados / por jugar */}
+      {/* Clasificación del grupo · tarjetas (móvil) */}
+      <ul className="mt-4 divide-y divide-border overflow-hidden rounded-lg border border-border sm:hidden">
+        {group.players.map((p, i) => {
+          const rank = pending ? null : (p.rank ?? i + 1)
+          const diff =
+            p.gamesFor != null && p.gamesAgainst != null
+              ? p.gamesFor - p.gamesAgainst
+              : null
+          const hit = isHit(p.name)
+          return (
+            <li
+              key={p.key}
+              className={cn(
+                'flex gap-3 px-3 py-3',
+                hit ? 'bg-terracotta/10' : rank === 1 && 'bg-forest/5',
+              )}
+            >
+              <span
+                className={cn(
+                  'w-6 shrink-0 pt-0.5 text-center font-heading text-2xl leading-none tabular-nums',
+                  hit
+                    ? 'text-terracotta'
+                    : rank === 1
+                      ? 'text-forest'
+                      : 'text-muted-foreground/60',
+                )}
+              >
+                {rank ?? '–'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <span
+                    className={cn(
+                      'text-[15px] font-medium leading-snug',
+                      p.absent
+                        ? 'text-muted-foreground line-through'
+                        : 'text-ink',
+                      hit && 'text-terracotta',
+                    )}
+                  >
+                    {p.name}
+                  </span>
+                  {p.movement && (
+                    <span
+                      className={cn(
+                        'mt-0.5 shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+                        movementChipClass[p.movement],
+                      )}
+                    >
+                      {movementLabel[p.movement]}
+                    </span>
+                  )}
+                </div>
+                {p.note && (
+                  <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-terracotta">
+                    {p.note}
+                  </p>
+                )}
+                <dl className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 font-mono text-xs tabular-nums">
+                  <StatChip
+                    label="Sets"
+                    value={p.setsWon != null ? `${p.setsWon}–${p.setsLost}` : '–'}
+                  />
+                  <StatChip
+                    label="Jue"
+                    value={
+                      p.gamesFor != null ? `${p.gamesFor}–${p.gamesAgainst}` : '–'
+                    }
+                  />
+                  <StatChip
+                    label="Dif"
+                    value={diff == null ? '–' : diff > 0 ? `+${diff}` : String(diff)}
+                    valueClass={
+                      diff == null || diff === 0
+                        ? undefined
+                        : diff > 0
+                          ? 'text-forest'
+                          : 'text-terracotta'
+                    }
+                  />
+                </dl>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      {/* Sets jugados / por jugar (mini marcador apilado) */}
       {group.sets.length > 0 && (
         <div className="mt-3 space-y-2">
           {group.sets.map((s) => (
             <div
               key={s.id}
-              className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-background/40 px-3 py-2"
+              className="flex items-start gap-3 rounded-md border border-border bg-background/40 px-3 py-2.5"
             >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded border border-border font-mono text-[10px] text-muted-foreground tabular-nums">
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded border border-border font-mono text-[10px] text-muted-foreground tabular-nums">
                 {s.label}
               </span>
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <SetSide
+              <div className="min-w-0 flex-1 space-y-1">
+                <SetLine
                   players={s.sideA}
                   winner={s.winnerSide === 'A'}
+                  score={s.scoreA}
                   isHit={isHit}
                 />
-                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                  vs
-                </span>
-                <SetSide
+                <SetLine
                   players={s.sideB}
                   winner={s.winnerSide === 'B'}
+                  score={s.scoreB}
                   isHit={isHit}
                 />
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5 font-mono tabular-nums">
-                <span className="text-ink">{s.scoreA ?? '–'}</span>
-                <span className="text-muted-foreground">–</span>
-                <span className="text-ink">{s.scoreB ?? '–'}</span>
               </div>
             </div>
           ))}
@@ -379,34 +467,67 @@ function GroupCard({
   )
 }
 
-/** Un lado de un set: parejas con el jugador buscado resaltado. */
-function SetSide({
+/** Etiqueta + valor compacto para las estadísticas en la tarjeta móvil. */
+function StatChip({
+  label,
+  value,
+  valueClass,
+}: {
+  label: string
+  value: string
+  valueClass?: string
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <dt className="text-[9px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </dt>
+      <dd className={cn('text-ink', valueClass)}>{value}</dd>
+    </div>
+  )
+}
+
+/** Una pareja del set con sus juegos al lado (mini marcador, sin truncar). */
+function SetLine({
   players,
   winner,
+  score,
   isHit,
 }: {
   players: string[]
   winner: boolean
+  score: number | null
   isHit: (name: string) => boolean
 }) {
-  if (players.length === 0) {
-    return <span className="truncate text-sm text-ink">—</span>
-  }
   return (
-    <span
-      className={cn(
-        'truncate text-sm text-ink',
-        winner && 'font-medium',
-      )}
-    >
-      {players.map((name, i) => (
-        <span key={i}>
-          {i > 0 && ' / '}
-          <span className={cn(isHit(name) && 'font-semibold text-terracotta')}>
-            {name}
-          </span>
-        </span>
-      ))}
-    </span>
+    <div className="flex items-center justify-between gap-3">
+      <span
+        className={cn(
+          'min-w-0 text-sm leading-snug',
+          winner ? 'font-medium text-ink' : 'text-ink/70',
+        )}
+      >
+        {players.length === 0
+          ? '—'
+          : players.map((name, i) => (
+              <span key={i}>
+                {i > 0 && ' / '}
+                <span
+                  className={cn(isHit(name) && 'font-semibold text-terracotta')}
+                >
+                  {name}
+                </span>
+              </span>
+            ))}
+      </span>
+      <span
+        className={cn(
+          'shrink-0 font-mono text-base tabular-nums',
+          winner ? 'font-semibold text-ink' : 'text-ink/45',
+        )}
+      >
+        {score ?? '–'}
+      </span>
+    </div>
   )
 }

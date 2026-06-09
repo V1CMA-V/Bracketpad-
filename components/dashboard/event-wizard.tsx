@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { createEvent } from '@/app/dashboard/nuevo-evento/actions'
 import type { EventType } from '@/lib/validations/event'
+import { currencyOptions, formatMoney } from '@/lib/money'
 import {
   ArrowRight,
   Check,
@@ -34,6 +35,9 @@ type EventData = {
   playKind: 'individual' | 'pairs'
   bestOfSets: number
   rankingBy: 'sets' | 'games' | 'both'
+  noShowGamesAgainst: number
+  entryFee: string
+  currency: string
 }
 
 const initialData: EventData = {
@@ -47,6 +51,9 @@ const initialData: EventData = {
   playKind: 'individual',
   bestOfSets: 3,
   rankingBy: 'sets',
+  noShowGamesAgainst: 9,
+  entryFee: '',
+  currency: 'MXN',
 }
 
 type StepDef = {
@@ -527,6 +534,66 @@ function StepFormato({ data, update }: StepProps) {
           </p>
         </div>
       </StepSection>
+
+      <StepSection num="3.4" title="Sanción por inasistencia">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <NumberField
+            label="Juegos en contra"
+            value={data.noShowGamesAgainst}
+            onChange={(v) => update({ noShowGamesAgainst: v })}
+            min={0}
+            max={30}
+            hint="Si un jugador no se presenta"
+          />
+          <div className="rounded-xl border-l-2 border-ochre bg-card p-4">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-ochre">
+              Qué pasa si alguien falta
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Quien no llega a su jornada pierde el día (sus 3 sets) y desciende
+              de cancha. Aquí decides los{' '}
+              <em className="italic text-foreground">
+                {data.noShowGamesAgainst} juegos en contra
+              </em>{' '}
+              que se le anotan en la clasificación. Cada club usa su propia
+              sanción (9, 6, 0…).
+            </p>
+          </div>
+        </div>
+      </StepSection>
+
+      <StepSection num="3.5" title="Costo de inscripción">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field
+            label="Costo de ingreso"
+            hint="Opcional. Lo que paga cada jugador para entrar a la liga. Déjalo vacío si es gratuita."
+          >
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              className={inputCls}
+              placeholder="Ej. 500"
+              value={data.entryFee}
+              onChange={(e) => update({ entryFee: e.target.value })}
+            />
+          </Field>
+          <Field label="Moneda">
+            <select
+              className={inputCls}
+              value={data.currency}
+              onChange={(e) => update({ currency: e.target.value })}
+            >
+              {currencyOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </StepSection>
     </div>
   )
 }
@@ -562,6 +629,16 @@ function StepRevisar({ data }: StepProps) {
                 : data.rankingBy === 'both'
                   ? 'Por sets y juegos'
                   : 'Por sets ganados',
+          },
+          {
+            label: 'Sanción por falta',
+            value: `${data.noShowGamesAgainst} juegos en contra`,
+          },
+          {
+            label: 'Inscripción',
+            value: data.entryFee.trim()
+              ? formatMoney(Number(data.entryFee), data.currency)
+              : 'Gratuita',
           },
         ]
       : [
@@ -718,6 +795,9 @@ export function EventWizard() {
               playKind: data.playKind,
               bestOfSets: data.bestOfSets,
               rankingBy: data.rankingBy,
+              noShowGamesAgainst: data.noShowGamesAgainst,
+              entryFee: data.entryFee.trim() || undefined,
+              currency: data.currency,
             }
           : {
               type: 'torneo' as const,

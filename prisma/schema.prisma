@@ -234,6 +234,10 @@ model League {
   // Premios de la liga (texto libre): qué se gana al terminar primero en la
   // clasificación, premios por cancha/grupo, etc. Lo redacta el club.
   prizes    String?
+  // Costo de inscripción a la liga: lo que paga un jugador para entrar.
+  // Null = gratuita / sin definir. La moneda acompaña al importe.
+  entryFee  Decimal?       @db.Decimal(10, 2)
+  currency  String         @default("MXN")
   createdAt DateTime       @default(now())
 
   club          Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -272,13 +276,13 @@ model LeagueScoringConfig {
   bestOfSets  Int                @default(3) @db.SmallInt // mejor de 3 / mejor de 1
   goldenPoint Boolean            @default(true) // punto de oro en deuce
   tiebreakAt  Int                @default(6) @db.SmallInt // games para tie-break
+  // Sanción por inasistencia: juegos en contra que se asignan a quien no se
+  // presenta a su jornada. Cada club fija su política (9 por defecto = forfeit
+  // de los 3 sets; otros usan 6, 0, etc.). El jugador siempre pierde la jornada.
+  noShowGamesAgainst Int         @default(9) @db.SmallInt
   // Criterio principal de la clasificación: por sets ganados (defecto) o
   // únicamente por juegos ganados (ligas que solo cuentan juegos).
   rankingBy   LeagueRankingBasis @default(sets)
-  // criterios de desempate, en orden de prioridad (por sets primero)
-  tiebreaker1 StandingTiebreaker @default(set_diff)
-  tiebreaker2 StandingTiebreaker @default(sets_won)
-  tiebreaker3 StandingTiebreaker @default(game_diff)
 
   league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
 
@@ -289,14 +293,6 @@ enum LeagueRankingBasis {
   sets // ranking por sets ganados (y juegos como desempate)
   games // ranking únicamente por juegos ganados
   both // ranking por sets ganados, mostrando sets y juegos en la tabla
-}
-
-enum StandingTiebreaker {
-  head_to_head
-  set_diff
-  game_diff
-  sets_won
-  games_won
 }
 
 model LeagueRound {
@@ -582,6 +578,10 @@ model LeagueGroupSlot {
   // no cuentan; el jugador pierde la jornada (último del grupo, desciende).
   attendance     SlotAttendance @default(pending)
   substituteName String? // nombre del suplente externo que jugó en su lugar
+  // Decisión manual del organizador cuando hay empate por el ascenso o el
+  // descenso en el grupo: marca quién sube/baja. Solo se usa para resolver el
+  // empate; se ignora cuando el puesto se decide solo por resultados.
+  manualMovement GroupMovement?
   // Se llenan al cerrar la jornada:
   setsWon        Int?           @db.SmallInt
   rankInGroup    Int?           @db.SmallInt // 1..4

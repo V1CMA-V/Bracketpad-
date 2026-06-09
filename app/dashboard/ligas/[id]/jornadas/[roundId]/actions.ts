@@ -218,14 +218,7 @@ export async function generateGroupsFromStandings(
       league: {
         select: {
           playKind: true,
-          scoringConfig: {
-            select: {
-              rankingBy: true,
-              tiebreaker1: true,
-              tiebreaker2: true,
-              tiebreaker3: true,
-            },
-          },
+          scoringConfig: { select: { rankingBy: true } },
         },
       },
       _count: { select: { matches: true } },
@@ -275,11 +268,7 @@ export async function generateGroupsFromStandings(
     }
   }
 
-  const cfg = round.league.scoringConfig
-  const tiebreakers = cfg
-    ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
-    : ['set_diff', 'sets_won', 'game_diff']
-  const rankingBy = cfg?.rankingBy ?? 'sets'
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
 
   const zero = {
     wins: 0,
@@ -297,7 +286,7 @@ export async function generateGroupsFromStandings(
       playerId: r.player.id,
       s: r.standing ?? zero,
     }))
-    .sort((a, b) => compareStandings(a.s, b.s, tiebreakers, rankingBy))
+    .sort((a, b) => compareStandings(a.s, b.s, rankingBy))
     .map(({ registrationId, playerId }) => ({ registrationId, playerId }))
 
   // Grupos de 4 en orden de ranking: grupo 1 = mejores.
@@ -482,9 +471,16 @@ export async function captureGroupResults(
       leagueRoundId: roundId,
       contextType: 'league',
     },
-    select: { id: true },
+    select: { id: true, groupNumber: true },
   })
   const valid = new Set(owned.map((m) => m.id))
+  // Grupos afectados: al cambiar sus resultados, cualquier decisión manual de
+  // empate previa queda obsoleta y se descarta para volver a evaluarse.
+  const affectedGroups = [
+    ...new Set(
+      owned.map((m) => m.groupNumber).filter((g): g is number => g != null),
+    ),
+  ]
 
   const ops: Prisma.PrismaPromise<unknown>[] = []
   for (let i = 0; i < matchIds.length; i++) {
@@ -536,6 +532,15 @@ export async function captureGroupResults(
   }
 
   if (ops.length === 0) return { error: 'No hay resultados que guardar.' }
+
+  if (affectedGroups.length > 0) {
+    ops.push(
+      prisma.leagueGroupSlot.updateMany({
+        where: { roundId, groupNumber: { in: affectedGroups } },
+        data: { manualMovement: null },
+      }),
+    )
+  }
 
   await prisma.$transaction(ops)
   await recomputeStandings(round.leagueId)
@@ -799,7 +804,7 @@ export async function setSlotAttendance(
   // El slot debe existir en esta jornada.
   const slot = await prisma.leagueGroupSlot.findUnique({
     where: { roundId_registrationId: { roundId, registrationId } },
-    select: { id: true },
+    select: { id: true, groupNumber: true },
   })
   if (!slot) return { error: 'Jugador no encontrado en esta jornada.' }
 
@@ -807,10 +812,18 @@ export async function setSlotAttendance(
   const sub =
     attendance === 'absent' ? (substituteName?.trim() || null) : null
 
-  await prisma.leagueGroupSlot.update({
-    where: { roundId_registrationId: { roundId, registrationId } },
-    data: { attendance, substituteName: sub },
-  })
+  await prisma.$transaction([
+    prisma.leagueGroupSlot.update({
+      where: { roundId_registrationId: { roundId, registrationId } },
+      data: { attendance, substituteName: sub },
+    }),
+    // La asistencia decide quién desciende: descarta cualquier decisión manual
+    // de empate previa del grupo para volver a evaluarla.
+    prisma.leagueGroupSlot.updateMany({
+      where: { roundId, groupNumber: slot.groupNumber },
+      data: { manualMovement: null },
+    }),
+  ])
 
   // La asistencia cambia qué resultados cuentan; recalcula la clasificación.
   await recomputeStandings(round.leagueId)
@@ -897,6 +910,111 @@ type GroupAcc = {
   gamesAgainst: number
 }
 
+/** Puntuación de un jugador para el ascenso/descenso del grupo: sets ganados
+ *  (o diferencia de juegos en ligas «por juegos»). */
+function groupScore(a: GroupAcc, rankingBy: string): number {
+  return rankingBy === 'games' ? a.gamesFor - a.gamesAgainst : a.setsFor
+}
+
+/**
+ * Candidatos al ascenso/descenso de un grupo según los resultados. Un puesto
+ * está «empatado» cuando lo comparten 2+ jugadores: ya no se rompe con una
+ * lista de prioridad, sino que lo decide el organizador (manualMovement).
+ */
+function groupBoundaries(
+  members: GroupAcc[],
+  groupNumber: number,
+  maxGroup: number,
+  absent: Set<string>,
+  rankingBy: string,
+) {
+  const present = members.filter((m) => !absent.has(m.playerId))
+  const hasAbsent = members.some((m) => absent.has(m.playerId))
+  const score = (m: GroupAcc) => groupScore(m, rankingBy)
+  let upCandidates: GroupAcc[] = []
+  let downCandidates: GroupAcc[] = []
+  // El grupo más alto no asciende; el más bajo no desciende.
+  if (groupNumber > 1 && present.length > 0) {
+    const top = Math.max(...present.map(score))
+    upCandidates = present.filter((m) => score(m) === top)
+  }
+  // Si hay ausentes, el descenso lo ocupan ellos (pierden la jornada), así que
+  // no hay empate por el descenso entre los presentes.
+  if (groupNumber < maxGroup && !hasAbsent && present.length > 0) {
+    const bottom = Math.min(...present.map(score))
+    downCandidates = present.filter((m) => score(m) === bottom)
+  }
+  return { present, hasAbsent, upCandidates, downCandidates }
+}
+
+type MatchForAcc = {
+  winnerSide: 'A' | 'B' | null
+  sides: { side: string; players: { playerId: string }[] }[]
+  sets: { gamesA: number; gamesB: number }[]
+}
+
+/**
+ * Acumula el resultado por jugador (registración) de una jornada a partir de sus
+ * partidos. El jugador ausente no recibe los resultados que jugó su suplente.
+ */
+function buildGroupAccs(
+  slots: { registrationId: string; registration: { playerId: string } }[],
+  matches: MatchForAcc[],
+  absent: Set<string>,
+): Map<string, GroupAcc> {
+  const acc = new Map<string, GroupAcc>()
+  for (const s of slots) {
+    acc.set(s.registration.playerId, {
+      registrationId: s.registrationId,
+      playerId: s.registration.playerId,
+      wins: 0,
+      losses: 0,
+      setsFor: 0,
+      setsAgainst: 0,
+      gamesFor: 0,
+      gamesAgainst: 0,
+    })
+  }
+  for (const m of matches) {
+    const sideA = m.sides.find((x) => x.side === 'A')
+    const sideB = m.sides.find((x) => x.side === 'B')
+    if (!sideA || !sideB) continue
+    let setsA = 0
+    let setsB = 0
+    let gamesA = 0
+    let gamesB = 0
+    for (const set of m.sets) {
+      gamesA += set.gamesA
+      gamesB += set.gamesB
+      if (set.gamesA > set.gamesB) setsA += 1
+      else if (set.gamesB > set.gamesA) setsB += 1
+    }
+    const apply = (
+      players: { playerId: string }[],
+      ownSets: number,
+      oppSets: number,
+      ownGames: number,
+      oppGames: number,
+      won: boolean,
+    ) => {
+      for (const p of players) {
+        if (absent.has(p.playerId)) continue
+        const a = acc.get(p.playerId)
+        if (!a) continue
+        a.setsFor += ownSets
+        a.setsAgainst += oppSets
+        a.gamesFor += ownGames
+        a.gamesAgainst += oppGames
+        if (won) a.wins += 1
+        else a.losses += 1
+      }
+    }
+    apply(sideA.players, setsA, setsB, gamesA, gamesB, m.winnerSide === 'A')
+    apply(sideB.players, setsB, setsA, gamesB, gamesA, m.winnerSide === 'B')
+  }
+  return acc
+}
+
 export async function closeRoundAndAdvance(
   roundId: string,
 ): Promise<MatchState> {
@@ -912,14 +1030,7 @@ export async function closeRoundAndAdvance(
       league: {
         select: {
           playKind: true,
-          scoringConfig: {
-            select: {
-              rankingBy: true,
-              tiebreaker1: true,
-              tiebreaker2: true,
-              tiebreaker3: true,
-            },
-          },
+          scoringConfig: { select: { rankingBy: true } },
         },
       },
     },
@@ -936,6 +1047,7 @@ export async function closeRoundAndAdvance(
       registrationId: true,
       groupNumber: true,
       attendance: true,
+      manualMovement: true,
       registration: { select: { playerId: true } },
     },
   })
@@ -994,63 +1106,13 @@ export async function closeRoundAndAdvance(
   )
 
   // Acumula el resultado de cada jugador (solo juega en su grupo esta jornada).
-  const acc = new Map<string, GroupAcc>()
-  for (const s of slots) {
-    acc.set(s.registration.playerId, {
-      registrationId: s.registrationId,
-      playerId: s.registration.playerId,
-      wins: 0,
-      losses: 0,
-      setsFor: 0,
-      setsAgainst: 0,
-      gamesFor: 0,
-      gamesAgainst: 0,
-    })
-  }
+  const acc = buildGroupAccs(slots, matches, absent)
 
-  for (const m of matches) {
-    const sideA = m.sides.find((x) => x.side === 'A')
-    const sideB = m.sides.find((x) => x.side === 'B')
-    if (!sideA || !sideB) continue
-    let setsA = 0
-    let setsB = 0
-    let gamesA = 0
-    let gamesB = 0
-    for (const set of m.sets) {
-      gamesA += set.gamesA
-      gamesB += set.gamesB
-      if (set.gamesA > set.gamesB) setsA += 1
-      else if (set.gamesB > set.gamesA) setsB += 1
-    }
-    const apply = (
-      players: { playerId: string }[],
-      ownSets: number,
-      oppSets: number,
-      ownGames: number,
-      oppGames: number,
-      won: boolean,
-    ) => {
-      for (const p of players) {
-        if (absent.has(p.playerId)) continue
-        const a = acc.get(p.playerId)
-        if (!a) continue
-        a.setsFor += ownSets
-        a.setsAgainst += oppSets
-        a.gamesFor += ownGames
-        a.gamesAgainst += oppGames
-        if (won) a.wins += 1
-        else a.losses += 1
-      }
-    }
-    apply(sideA.players, setsA, setsB, gamesA, gamesB, m.winnerSide === 'A')
-    apply(sideB.players, setsB, setsA, gamesB, gamesA, m.winnerSide === 'B')
-  }
-
-  const cfg = round.league.scoringConfig
-  const tiebreakers = cfg
-    ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
-    : ['set_diff', 'sets_won', 'game_diff']
-  const rankingBy = cfg?.rankingBy ?? 'sets'
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+  // Decisión manual del organizador para los empates (por registración).
+  const manualByReg = new Map(
+    slots.map((s) => [s.registrationId, s.manualMovement]),
+  )
 
   // Agrupa por grupo y comprueba que cada grupo tenga exactamente 4.
   const byGroup = new Map<number, GroupAcc[]>()
@@ -1070,7 +1132,6 @@ export async function closeRoundAndAdvance(
   }
   const maxGroup = Math.max(...slots.map((s) => s.groupNumber))
 
-  // Por grupo: rankea por sets ganados, fija movimiento y nuevo grupo.
   type NextMember = {
     registrationId: string
     playerId: string
@@ -1083,24 +1144,80 @@ export async function closeRoundAndAdvance(
     movement: 'up' | 'down' | 'stay'
   }[] = []
   const nextMembers: NextMember[] = []
+  // Grupos con empate por el ascenso/descenso que el organizador aún no resolvió.
+  const unresolved: string[] = []
 
   for (const [groupNumber, members] of byGroup) {
-    // Los presentes se ordenan por resultados; los ausentes pierden la jornada
-    // y van al fondo del grupo en orden estable.
-    const present = members.filter((m) => !absent.has(m.playerId))
+    const { present, upCandidates, downCandidates } = groupBoundaries(
+      members,
+      groupNumber,
+      maxGroup,
+      absent,
+      rankingBy,
+    )
+    const score = (m: GroupAcc) => groupScore(m, rankingBy)
+
+    // Quién sube: único candidato → automático; varios → decisión manual.
+    let upReg: string | null = null
+    let groupUnresolved = false
+    if (upCandidates.length === 1) {
+      upReg = upCandidates[0].registrationId
+    } else if (upCandidates.length > 1) {
+      const chosen = upCandidates.find(
+        (m) => manualByReg.get(m.registrationId) === 'up',
+      )
+      if (chosen) upReg = chosen.registrationId
+      else {
+        unresolved.push(`Grupo ${groupNumber} (ascenso)`)
+        groupUnresolved = true
+      }
+    }
+
+    // Quién baja (solo si no hay ausentes; con ausentes, bajan ellos).
+    let downReg: string | null = null
+    if (downCandidates.length === 1) {
+      downReg = downCandidates[0].registrationId
+    } else if (downCandidates.length > 1) {
+      const chosen = downCandidates.find(
+        (m) => manualByReg.get(m.registrationId) === 'down',
+      )
+      if (chosen) downReg = chosen.registrationId
+      else {
+        unresolved.push(`Grupo ${groupNumber} (descenso)`)
+        groupUnresolved = true
+      }
+    }
+
+    // No fijamos movimiento de un grupo con empates pendientes; se acumulan
+    // todos para un único aviso al final.
+    if (groupUnresolved) continue
+
+    // Orden del grupo: el que sube primero, el resto por puntuación, el que baja
+    // al final y los ausentes después (pierden la jornada).
+    const upM = upReg
+      ? members.find((m) => m.registrationId === upReg)
+      : undefined
+    const downM = downReg
+      ? members.find((m) => m.registrationId === downReg)
+      : undefined
+    const middle = present
+      .filter((m) => m !== upM && m !== downM)
+      .sort((x, y) => score(y) - score(x))
     const missing = members.filter((m) => absent.has(m.playerId))
-    present.sort((x, y) => compareStandings(x, y, tiebreakers, rankingBy))
-    const ordered = [...present, ...missing]
+    const ordered = [
+      ...(upM ? [upM] : []),
+      ...middle,
+      ...(downM ? [downM] : []),
+      ...missing,
+    ]
     ordered.forEach((mem, i) => {
-      const rank = i + 1
       const isAbsent = absent.has(mem.playerId)
       let movement: 'up' | 'down' | 'stay' = 'stay'
       if (isAbsent) {
         // Pierde la jornada: desciende salvo que ya esté en el grupo más bajo.
         if (groupNumber < maxGroup) movement = 'down'
-      } else if (rank === 1 && groupNumber > 1) movement = 'up'
-      else if (rank === ordered.length && groupNumber < maxGroup)
-        movement = 'down'
+      } else if (mem.registrationId === upReg) movement = 'up'
+      else if (mem.registrationId === downReg) movement = 'down'
       const newGroup =
         movement === 'up'
           ? groupNumber - 1
@@ -1110,7 +1227,7 @@ export async function closeRoundAndAdvance(
       slotUpdates.push({
         registrationId: mem.registrationId,
         setsWon: mem.setsFor,
-        rankInGroup: rank,
+        rankInGroup: i + 1,
         movement,
       })
       nextMembers.push({
@@ -1119,6 +1236,16 @@ export async function closeRoundAndAdvance(
         newGroup,
       })
     })
+  }
+
+  // Empates sin resolver: no se cierra la jornada hasta que el organizador
+  // decida quién sube/baja en cada grupo afectado (aviso en su tarjeta).
+  if (unresolved.length > 0) {
+    return {
+      error: `Hay empates sin resolver: ${unresolved.join(
+        ', ',
+      )}. Decide quién sube y quién baja en cada grupo (verás un aviso de empate) antes de cerrar la jornada.`,
+    }
   }
 
   // Orden dentro de cada nuevo grupo: por clasificación acumulada (siembra).
@@ -1161,7 +1288,6 @@ export async function closeRoundAndAdvance(
           compareStandings(
             standMap.get(x.registrationId) ?? zero,
             standMap.get(y.registrationId) ?? zero,
-            tiebreakers,
             rankingBy,
           ),
         )
@@ -1207,5 +1333,129 @@ export async function closeRoundAndAdvance(
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${roundId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Resolver empate de ascenso/descenso en un grupo (decisión manual)         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Fija quién sube y/o quién baja cuando un grupo terminó con empate por el
+ * ascenso o el descenso. Valida que los elegidos estén entre los empatados y
+ * guarda la decisión en `manualMovement`; el cierre de la jornada la respeta.
+ * Si los resultados ya no producen empate, descarta cualquier decisión previa.
+ */
+export async function setGroupTieDecision(
+  roundId: string,
+  groupNumber: number,
+  upRegistrationId: string | null,
+  downRegistrationId: string | null,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: {
+      id: true,
+      leagueId: true,
+      league: { select: { scoringConfig: { select: { rankingBy: true } } } },
+    },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+
+  const slots = await prisma.leagueGroupSlot.findMany({
+    where: { roundId },
+    select: {
+      registrationId: true,
+      groupNumber: true,
+      attendance: true,
+      registration: { select: { playerId: true } },
+    },
+  })
+  const groupSlots = slots.filter((s) => s.groupNumber === groupNumber)
+  if (groupSlots.length === 0) {
+    return { error: 'Grupo no encontrado en esta jornada.' }
+  }
+  const maxGroup = Math.max(...slots.map((s) => s.groupNumber))
+
+  const matches = await prisma.match.findMany({
+    where: { leagueRoundId: roundId, groupNumber },
+    select: {
+      status: true,
+      winnerSide: true,
+      sides: {
+        select: { side: true, players: { select: { playerId: true } } },
+      },
+      sets: { select: { gamesA: true, gamesB: true } },
+    },
+  })
+  if (matches.length === 0 || matches.some((m) => m.status !== 'finished')) {
+    return {
+      error: 'Termina todos los sets del grupo antes de resolver el empate.',
+    }
+  }
+
+  const absent = new Set(
+    slots
+      .filter((s) => s.attendance === 'absent')
+      .map((s) => s.registration.playerId),
+  )
+  const acc = buildGroupAccs(slots, matches, absent)
+  const members = groupSlots
+    .map((s) => acc.get(s.registration.playerId))
+    .filter((a): a is GroupAcc => !!a)
+  const { upCandidates, downCandidates } = groupBoundaries(
+    members,
+    groupNumber,
+    maxGroup,
+    absent,
+    rankingBy,
+  )
+  const upTie = upCandidates.length > 1
+  const downTie = downCandidates.length > 1
+
+  // El empate desapareció (cambiaron resultados): limpia y termina.
+  if (!upTie && !downTie) {
+    await prisma.leagueGroupSlot.updateMany({
+      where: { roundId, groupNumber },
+      data: { manualMovement: null },
+    })
+    revalidateRound(round.leagueId, round.id)
+    return { success: true }
+  }
+
+  const upIds = new Set(upCandidates.map((m) => m.registrationId))
+  const downIds = new Set(downCandidates.map((m) => m.registrationId))
+  if (upTie && (!upRegistrationId || !upIds.has(upRegistrationId))) {
+    return { error: 'Elige quién sube entre los jugadores empatados.' }
+  }
+  if (downTie && (!downRegistrationId || !downIds.has(downRegistrationId))) {
+    return { error: 'Elige quién baja entre los jugadores empatados.' }
+  }
+  if (upTie && downTie && upRegistrationId === downRegistrationId) {
+    return { error: 'El mismo jugador no puede subir y bajar.' }
+  }
+
+  await prisma.$transaction(
+    groupSlots.map((s) => {
+      const movement: 'up' | 'down' | null =
+        upTie && s.registrationId === upRegistrationId
+          ? 'up'
+          : downTie && s.registrationId === downRegistrationId
+            ? 'down'
+            : null
+      return prisma.leagueGroupSlot.update({
+        where: {
+          roundId_registrationId: { roundId, registrationId: s.registrationId },
+        },
+        data: { manualMovement: movement },
+      })
+    }),
+  )
+
+  revalidateRound(round.leagueId, round.id)
   return { success: true }
 }

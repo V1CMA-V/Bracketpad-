@@ -10,17 +10,14 @@ import {
   Save,
   Search,
   Trash2,
+  TriangleAlert,
   Users,
   Wand2,
   X,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import {
-  MAX_GAMES_PER_SET,
-  NO_SHOW_GAMES_PER_SET,
-  NO_SHOW_SETS,
-} from '@/lib/league-rules'
+import { MAX_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
 import {
   captureGroupResults,
@@ -32,6 +29,7 @@ import {
   deleteMatch,
   generateGroupsFromStandings,
   setGroupStatus,
+  setGroupTieDecision,
   setMatchStatus,
   setSlotAttendance,
   updateGroupDetails,
@@ -87,19 +85,10 @@ export type MatchItem = {
   sets: { gamesA: number; gamesB: number }[]
 }
 
-/**
- * Totales acumulados de un jugador en toda la liga. Se usa como último criterio
- * de desempate del movimiento de grupo (sube/baja) cuando dos jugadores empatan
- * en sets, juegos y diferencia, y su enfrentamiento directo también queda igual.
- */
-export type GlobalStanding = {
-  setsFor: number
-  setsAgainst: number
-  gamesFor: number
-  gamesAgainst: number
-}
-
 export type Attendance = 'pending' | 'present' | 'absent'
+
+/** Decisión manual del organizador para resolver un empate de ascenso/descenso. */
+export type Movement = 'up' | 'down' | 'stay'
 
 /** Pase de lista de un grupo: jugadores inscritos, asistencia y suplente. */
 export type GroupRoster = {
@@ -110,6 +99,8 @@ export type GroupRoster = {
     fullName: string
     attendance: Attendance
     substituteName: string | null
+    /** Decisión manual de empate (sube/baja) si el organizador ya la fijó. */
+    manualMovement: Movement | null
   }[]
 }
 
@@ -1122,7 +1113,8 @@ function GroupCard({
   roster,
   maxGroupNumber,
   courts,
-  globalStandings,
+  rankingBy,
+  noShowGamesAgainst,
   highlight,
 }: {
   roundId: string
@@ -1130,7 +1122,10 @@ function GroupCard({
   roster?: GroupRoster
   maxGroupNumber: number
   courts: Option[]
-  globalStandings?: Record<string, GlobalStanding>
+  /** Criterio de ascenso/descenso: sets ganados o diferencia de juegos. */
+  rankingBy: 'sets' | 'games' | 'both'
+  /** Juegos en contra que el club asigna a quien no se presenta. */
+  noShowGamesAgainst: number
   /** Texto de búsqueda ya normalizado, para resaltar el jugador coincidente. */
   highlight?: string
 }) {
@@ -1139,6 +1134,20 @@ function GroupCard({
   const [panel, setPanel] = useState<'none' | 'edit' | 'checkin'>('none')
   const [removing, startRemove] = useTransition()
   const [statusPending, startStatus] = useTransition()
+  const [tiePending, startTie] = useTransition()
+
+  // Selección del organizador para resolver empates, inicializada con la
+  // decisión ya guardada (si la hay).
+  const [chosenUp, setChosenUp] = useState(
+    () =>
+      roster?.members.find((m) => m.manualMovement === 'up')?.registrationId ??
+      '',
+  )
+  const [chosenDown, setChosenDown] = useState(
+    () =>
+      roster?.members.find((m) => m.manualMovement === 'down')
+        ?.registrationId ?? '',
+  )
 
   const matches = [...group.matches].sort(
     (a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0),
@@ -1207,7 +1216,8 @@ function GroupCard({
   const stats: GroupStat[] = derived.map((p) => {
     const mem = memberByPlayer.get(p.id)
     if (mem?.attendance === 'absent') {
-      // No se presentó: forfeit de sus 3 sets → −9 en diferencia de juegos.
+      // No se presentó: forfeit de sus 3 sets; los juegos en contra los fija el
+      // club (noShowGamesAgainst).
       return {
         id: p.id,
         name: mem.fullName,
@@ -1216,7 +1226,7 @@ function GroupCard({
         setsWon: 0,
         setsLost: NO_SHOW_SETS,
         gamesFor: 0,
-        gamesAgainst: NO_SHOW_SETS * NO_SHOW_GAMES_PER_SET,
+        gamesAgainst: noShowGamesAgainst,
       }
     }
     let setsWon = 0
@@ -1246,70 +1256,109 @@ function GroupCard({
       gamesAgainst,
     }
   })
-  // Enfrentamiento directo entre dos jugadores del grupo: sets ganados en los
-  // sets donde fueron rivales (en el americano de 4 se cruzan en 2 de los 3
-  // sets; en el tercero son compañeros). Devuelve >0 si `aId` ganó más.
-  const headToHead = (aId: string, bId: string) => {
-    let aSets = 0
-    let bSets = 0
-    for (const m of matches) {
-      const set = m.sets[0]
-      if (!set) continue
-      const aOnA = m.sideA.some((x) => x.id === aId)
-      const aOnB = m.sideB.some((x) => x.id === aId)
-      const bOnA = m.sideA.some((x) => x.id === bId)
-      const bOnB = m.sideB.some((x) => x.id === bId)
-      const rivals = (aOnA && bOnB) || (aOnB && bOnA)
-      if (!rivals) continue
-      const aGames = aOnA ? set.gamesA : set.gamesB
-      const bGames = bOnA ? set.gamesA : set.gamesB
-      if (aGames > bGames) aSets += 1
-      else if (bGames > aGames) bSets += 1
-    }
-    return aSets - bSets
-  }
+  // Puntuación de ascenso/descenso: sets ganados (o dif. de juegos en ligas «por
+  // juegos»). Ya no hay lista de desempates: los empates por subir/bajar los
+  // resuelve el organizador a mano.
+  const scoreOf = (s: GroupStat) =>
+    rankingBy === 'games' ? s.gamesFor - s.gamesAgainst : s.setsWon
 
-  // Clasificación acumulada de la liga: comparador (negativo = `a` va por
-  // delante). Mismos criterios que la tabla: sets, dif. de sets, dif. de juegos.
-  const compareGlobal = (aId: string, bId: string) => {
-    const ga = globalStandings?.[aId]
-    const gb = globalStandings?.[bId]
-    if (!ga || !gb) return 0
-    return (
-      gb.setsFor - ga.setsFor ||
-      gb.setsFor - gb.setsAgainst - (ga.setsFor - ga.setsAgainst) ||
-      gb.gamesFor - gb.gamesAgainst - (ga.gamesFor - ga.gamesAgainst)
-    )
-  }
-
-  // Presentes por sets ganados, luego dif. de juegos y juegos a favor. Empate
-  // total → enfrentamiento directo → clasificación general acumulada → nombre
-  // (último recurso determinista y reproducible). Ausentes al fondo.
+  const presentStats = stats.filter((s) => !s.isAbsent)
+  const absentStats = stats.filter((s) => s.isAbsent)
+  const hasAbsent = absentStats.length > 0
+  // Orden de visualización: por puntuación y, a igualdad, por nombre (estable).
   const rankedStats = [
-    ...stats
-      .filter((s) => !s.isAbsent)
-      .sort(
-        (a, b) =>
-          b.setsWon - a.setsWon ||
-          b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
-          b.gamesFor - a.gamesFor ||
-          headToHead(b.id, a.id) ||
-          compareGlobal(a.id, b.id) ||
-          a.name.localeCompare(b.name),
-      ),
-    ...stats.filter((s) => s.isAbsent),
+    ...[...presentStats].sort(
+      (a, b) => scoreOf(b) - scoreOf(a) || a.name.localeCompare(b.name),
+    ),
+    ...absentStats,
   ]
-  const movementOf = (rank: number, isAbsent: boolean) => {
-    if (isAbsent) return group.groupNumber < maxGroupNumber ? 'down' : 'stay'
-    if (rank === 1 && group.groupNumber > 1) return 'up'
-    if (rank === rankedStats.length && group.groupNumber < maxGroupNumber)
-      return 'down'
+
+  const isHighest = group.groupNumber === 1
+  const isLowest = group.groupNumber >= maxGroupNumber
+  // Candidatos al ascenso (mejor puntuación) y al descenso (peor). Con ausentes,
+  // el descenso lo ocupan ellos, así que no hay empate por bajar.
+  const topScore = presentStats.length
+    ? Math.max(...presentStats.map(scoreOf))
+    : 0
+  const bottomScore = presentStats.length
+    ? Math.min(...presentStats.map(scoreOf))
+    : 0
+  const upCandidates = isHighest
+    ? []
+    : presentStats.filter((s) => scoreOf(s) === topScore)
+  const downCandidates =
+    isLowest || hasAbsent
+      ? []
+      : presentStats.filter((s) => scoreOf(s) === bottomScore)
+  const upTie = upCandidates.length > 1
+  const downTie = downCandidates.length > 1
+
+  // Decisión manual ya guardada (por jugador) para resolver el empate.
+  const resolvedUpId =
+    roster?.members.find((m) => m.manualMovement === 'up')?.playerId ?? null
+  const resolvedDownId =
+    roster?.members.find((m) => m.manualMovement === 'down')?.playerId ?? null
+  const upPending = upTie && !resolvedUpId
+  const downPending = downTie && !resolvedDownId
+
+  // Movimiento mostrado por jugador. 'tie' = empate pendiente de decidir.
+  const movementOf = (s: GroupStat): 'up' | 'down' | 'stay' | 'tie' => {
+    if (s.isAbsent) return isLowest ? 'stay' : 'down'
+    if (!isHighest) {
+      if (upTie) {
+        if (resolvedUpId === s.id) return 'up'
+        if (upPending && scoreOf(s) === topScore) return 'tie'
+      } else if (upCandidates[0]?.id === s.id) return 'up'
+    }
+    if (!isLowest && !hasAbsent) {
+      if (downTie) {
+        if (resolvedDownId === s.id) return 'down'
+        if (downPending && scoreOf(s) === bottomScore) return 'tie'
+      } else if (downCandidates[0]?.id === s.id) return 'down'
+    }
     return 'stay'
   }
   const movementLabel: Record<string, string> = {
     up: 'Sube',
     down: 'Baja',
     stay: 'Mantiene',
+    tie: 'Empate',
+  }
+
+  // Opciones del selector de empate (el server espera la registración).
+  const regOf = (playerId: string) =>
+    memberByPlayer.get(playerId)?.registrationId ?? null
+  const toOptions = (cands: GroupStat[]) =>
+    cands
+      .map((s) => ({ registrationId: regOf(s.id), name: s.name }))
+      .filter(
+        (o): o is { registrationId: string; name: string } =>
+          !!o.registrationId,
+      )
+  const upOptions = toOptions(upCandidates)
+  const downOptions = toOptions(downCandidates)
+  // Solo ofrecemos resolver si conocemos las registraciones de los empatados.
+  const showTieResolver =
+    groupStatus === 'finished' &&
+    ((upTie && upOptions.length === upCandidates.length) ||
+      (downTie && downOptions.length === downCandidates.length))
+
+  // Guarda la decisión del empate (quién sube / quién baja).
+  const tieSaveDisabled =
+    tiePending ||
+    (upTie && !chosenUp) ||
+    (downTie && !chosenDown) ||
+    (upTie && downTie && chosenUp === chosenDown)
+  const saveTie = () => {
+    if (tieSaveDisabled) return
+    startTie(() => {
+      void setGroupTieDecision(
+        roundId,
+        group.groupNumber,
+        upTie ? chosenUp || null : null,
+        downTie ? chosenDown || null : null,
+      )
+    })
   }
 
   // ¿Coincide este nombre con la búsqueda activa? (para resaltarlo).
@@ -1482,7 +1531,7 @@ function GroupCard({
             <tbody>
               {rankedStats.map((s, i) => {
                 const rank = i + 1
-                const mv = movementOf(rank, s.isAbsent)
+                const mv = movementOf(s)
                 const diff = s.gamesFor - s.gamesAgainst
                 return (
                   <tr
@@ -1538,7 +1587,9 @@ function GroupCard({
                             ? 'text-forest'
                             : mv === 'down'
                               ? 'text-terracotta'
-                              : 'text-muted-foreground',
+                              : mv === 'tie'
+                                ? 'text-ochre'
+                                : 'text-muted-foreground',
                         )}
                       >
                         {movementLabel[mv]}
@@ -1549,6 +1600,82 @@ function GroupCard({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showTieResolver && (
+        <div className="mt-3 rounded-lg border border-ochre/40 bg-ochre/5 p-4">
+          <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-ochre">
+            <TriangleAlert className="size-3.5" strokeWidth={2} />
+            Empate — decide quién {upTie && downTie
+              ? 'sube y baja'
+              : upTie
+                ? 'sube'
+                : 'baja'}
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            Hay empate en{' '}
+            {rankingBy === 'games' ? 'la diferencia de juegos' : 'los sets ganados'}
+            . El sistema no decide el ascenso/descenso: elígelo tú (por tus
+            propios medios) para poder cerrar la jornada.
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            {upTie && (
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Sube
+                </span>
+                <select
+                  value={chosenUp}
+                  onChange={(e) => setChosenUp(e.target.value)}
+                  disabled={tiePending}
+                  className={cn(fieldCls, 'w-44')}
+                >
+                  <option value="">Elegir…</option>
+                  {upOptions.map((o) => (
+                    <option key={o.registrationId} value={o.registrationId}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {downTie && (
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Baja
+                </span>
+                <select
+                  value={chosenDown}
+                  onChange={(e) => setChosenDown(e.target.value)}
+                  disabled={tiePending}
+                  className={cn(fieldCls, 'w-44')}
+                >
+                  <option value="">Elegir…</option>
+                  {downOptions.map((o) => (
+                    <option key={o.registrationId} value={o.registrationId}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={saveTie}
+              disabled={tieSaveDisabled}
+              className="h-9 gap-1.5 rounded-md px-4 text-sm"
+            >
+              <Save className="size-4" strokeWidth={2} />
+              {tiePending ? 'Guardando…' : 'Guardar decisión'}
+            </Button>
+          </div>
+          {upTie && downTie && chosenUp && chosenUp === chosenDown && (
+            <p className="mt-2 text-xs text-destructive">
+              El mismo jugador no puede subir y bajar.
+            </p>
+          )}
         </div>
       )}
 
@@ -1655,9 +1782,10 @@ export function RoundMatches({
   courts,
   matches,
   rosters,
-  globalStandings,
   playKind,
   bestOfSets,
+  rankingBy,
+  noShowGamesAgainst,
   defaultDateTime,
 }: {
   roundId: string
@@ -1665,9 +1793,10 @@ export function RoundMatches({
   courts: Option[]
   matches: MatchItem[]
   rosters: GroupRoster[]
-  globalStandings?: Record<string, GlobalStanding>
   playKind: 'individual' | 'pairs'
   bestOfSets: number
+  rankingBy: 'sets' | 'games' | 'both'
+  noShowGamesAgainst: number
   defaultDateTime?: string
 }) {
   const isIndividual = playKind === 'individual'
@@ -1827,7 +1956,8 @@ export function RoundMatches({
                 roster={rosterByGroup.get(g.groupNumber)}
                 maxGroupNumber={maxGroupNumber}
                 courts={courts}
-                globalStandings={globalStandings}
+                rankingBy={rankingBy}
+                noShowGamesAgainst={noShowGamesAgainst}
                 highlight={q}
               />
             ))}

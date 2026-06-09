@@ -13,6 +13,19 @@ const optionalDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida.')
   .optional()
 
+// Costo de inscripción: importe opcional (el vacío se trata como «sin definir»)
+// y su moneda. Se reutiliza en la creación y edición de ligas.
+const optionalFee = z.preprocess(
+  (v) => (v === '' || v === undefined || v === null ? undefined : v),
+  z.coerce
+    .number()
+    .min(0, 'El costo no puede ser negativo.')
+    .max(1_000_000, 'El costo es demasiado alto.')
+    .optional(),
+)
+
+const currency = z.enum(['MXN', 'USD', 'EUR']).default('MXN')
+
 export const createEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('torneo'),
@@ -45,6 +58,17 @@ export const createEventSchema = z.discriminatedUnion('type', [
       .max(5, 'Máximo 5 sets.'),
     // Cómo se decide la clasificación: por sets, solo por juegos, o ambos.
     rankingBy: z.enum(['sets', 'games', 'both']).default('sets'),
+    // Sanción por inasistencia: juegos en contra que se asignan a quien no se
+    // presenta a su jornada. Cada club fija su política (9 por defecto).
+    noShowGamesAgainst: z.coerce
+      .number()
+      .int()
+      .min(0, 'No puede ser negativo.')
+      .max(99, 'Máximo 99 juegos.')
+      .default(9),
+    // Costo de inscripción a la liga (opcional) y su moneda.
+    entryFee: optionalFee,
+    currency,
   }),
 ])
 

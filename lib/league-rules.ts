@@ -15,7 +15,9 @@ export const MAX_GAMES_PER_SET = 7
 export const NO_SHOW_GAMES_PER_SET = 3
 
 /**
- * Penalización en diferencia de juegos cuando un jugador no llega a su jornada:
- * pierde sus 3 sets como forfeit (−3 juegos cada uno) → −9 en la diferencia.
+ * Sanción por defecto (juegos en contra) cuando un jugador no llega a su
+ * jornada: forfeit de sus 3 sets a −3 juegos cada uno → 9. Cada liga puede
+ * sobrescribirla con `LeagueScoringConfig.noShowGamesAgainst`; esta constante es
+ * el valor por defecto y el respaldo cuando una liga no tiene configuración.
  */
-export const NO_SHOW_GAME_DIFF = -(NO_SHOW_SETS * NO_SHOW_GAMES_PER_SET)
+export const NO_SHOW_GAMES_AGAINST = NO_SHOW_SETS * NO_SHOW_GAMES_PER_SET

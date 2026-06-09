@@ -6,7 +6,6 @@ import type { Metadata } from 'next'
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import {
   RoundMatches,
-  type GlobalStanding,
   type GroupRoster,
   type MatchItem,
 } from '@/components/dashboard/round-matches'
@@ -72,14 +71,20 @@ export default async function JornadaDetailPage({
           id: true,
           name: true,
           playKind: true,
-          scoringConfig: { select: { bestOfSets: true } },
+          scoringConfig: {
+            select: {
+              bestOfSets: true,
+              noShowGamesAgainst: true,
+              rankingBy: true,
+            },
+          },
         },
       },
     },
   })
   if (!round) notFound()
 
-  const [registrations, courts, matches, slots, standings] = await Promise.all([
+  const [registrations, courts, matches, slots] = await Promise.all([
     prisma.leagueRegistration.findMany({
       where: { leagueId: id, status: 'active' },
       orderBy: { player: { fullName: 'asc' } },
@@ -120,22 +125,10 @@ export default async function JornadaDetailPage({
         registrationId: true,
         attendance: true,
         substituteName: true,
+        manualMovement: true,
         registration: {
           select: { playerId: true, player: { select: { fullName: true } } },
         },
-      },
-    }),
-    // Clasificación acumulada de la liga: último criterio de desempate del
-    // movimiento de grupo cuando dos jugadores empatan en todo (sets, juegos,
-    // diferencia) y su enfrentamiento directo queda igualado.
-    prisma.leagueStanding.findMany({
-      where: { leagueId: id },
-      select: {
-        setsFor: true,
-        setsAgainst: true,
-        gamesFor: true,
-        gamesAgainst: true,
-        registration: { select: { playerId: true } },
       },
     }),
   ])
@@ -144,17 +137,6 @@ export default async function JornadaDetailPage({
     id: r.player.id,
     name: r.player.fullName,
   }))
-
-  // playerId -> totales acumulados en la liga (para desempatar el movimiento).
-  const globalStandings: Record<string, GlobalStanding> = {}
-  for (const s of standings) {
-    globalStandings[s.registration.playerId] = {
-      setsFor: s.setsFor,
-      setsAgainst: s.setsAgainst,
-      gamesFor: s.gamesFor,
-      gamesAgainst: s.gamesAgainst,
-    }
-  }
 
   const matchItems: MatchItem[] = matches.map((m) => {
     const side = (s: 'A' | 'B') =>
@@ -189,6 +171,7 @@ export default async function JornadaDetailPage({
           fullName: s.registration.player.fullName,
           attendance: s.attendance,
           substituteName: s.substituteName,
+          manualMovement: s.manualMovement,
         })
         map.set(s.groupNumber, list)
         return map
@@ -199,6 +182,9 @@ export default async function JornadaDetailPage({
     .map(([groupNumber, members]) => ({ groupNumber, members }))
 
   const bestOfSets = round.league.scoringConfig?.bestOfSets ?? 3
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+  const noShowGamesAgainst =
+    round.league.scoringConfig?.noShowGamesAgainst ?? 9
   const roundLabel = round.name ?? `Jornada ${round.roundNumber}`
 
   // Prefija el día de la jornada en el campo de horario (12:00 por defecto),
@@ -264,9 +250,10 @@ export default async function JornadaDetailPage({
             courts={courts}
             matches={matchItems}
             rosters={rosters}
-            globalStandings={globalStandings}
             playKind={round.league.playKind}
             bestOfSets={bestOfSets}
+            rankingBy={rankingBy}
+            noShowGamesAgainst={noShowGamesAgainst}
             defaultDateTime={defaultDateTime}
           />
         </div>

@@ -7,6 +7,16 @@ const optionalDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida.')
   .optional()
 
+// Costo de inscripción: importe opcional (vacío = «sin definir») y su moneda.
+const optionalFee = z.preprocess(
+  (v) => (v === '' || v === undefined || v === null ? undefined : v),
+  z.coerce
+    .number()
+    .min(0, 'El costo no puede ser negativo.')
+    .max(1_000_000, 'El costo es demasiado alto.')
+    .optional(),
+)
+
 /**
  * Edición de una liga. Los campos se dividen en dos grupos:
  *  - «menores»: nombre, estado y fechas. Siempre editables; no alteran los
@@ -35,6 +45,9 @@ export const updateLeagueSchema = z
       .trim()
       .max(2000, 'La descripción de premios es demasiado larga.')
       .optional(),
+    // Costo de inscripción (opcional) y su moneda. Siempre editable.
+    entryFee: optionalFee,
+    currency: z.enum(['MXN', 'USD', 'EUR']).default('MXN'),
 
     // --- estructurales (solo se persisten en borrador) ---
     format: z.enum(['round_robin', 'divisions', 'ladder'], {
@@ -56,6 +69,13 @@ export const updateLeagueSchema = z
       .max(20, 'Máximo 20 juegos.'),
     // Cómo se decide la clasificación: por sets, solo por juegos, o ambos.
     rankingBy: z.enum(['sets', 'games', 'both']),
+    // Sanción por inasistencia (juegos en contra). Cada club fija su política.
+    noShowGamesAgainst: z.coerce
+      .number()
+      .int()
+      .min(0, 'No puede ser negativo.')
+      .max(99, 'Máximo 99 juegos.')
+      .default(9),
   })
   .refine(
     (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,

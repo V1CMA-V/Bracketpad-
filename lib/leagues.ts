@@ -34,14 +34,6 @@ export const leagueRoundStatusStyles: Record<
   closed: { text: 'text-ochre', dot: 'bg-ochre' },
 }
 
-export const standingTiebreakerLabels: Record<string, string> = {
-  head_to_head: 'Enfrentamiento directo',
-  set_diff: 'Diferencia de sets',
-  game_diff: 'Diferencia de juegos',
-  sets_won: 'Sets ganados',
-  games_won: 'Juegos ganados',
-}
-
 export const registrationStatusLabels: Record<string, string> = {
   active: 'Activa',
   withdrawn: 'Retirada',

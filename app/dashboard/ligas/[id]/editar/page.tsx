@@ -3,6 +3,7 @@ import {
   LeagueSettingsForm,
   type LeagueSettingsValues,
 } from '@/components/dashboard/league-settings'
+import { DeleteLeagueSection } from '@/components/dashboard/delete-league'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
@@ -54,10 +55,13 @@ export default async function LigaEditPage({
     startDate: toDateInput(league.startDate),
     endDate: toDateInput(league.endDate),
     prizes: league.prizes ?? '',
+    entryFee: league.entryFee != null ? league.entryFee.toString() : '',
+    currency: league.currency,
     bestOfSets: cfg?.bestOfSets ?? 3,
     goldenPoint: cfg?.goldenPoint ?? true,
     tiebreakAt: cfg?.tiebreakAt ?? 6,
     rankingBy: cfg?.rankingBy ?? 'sets',
+    noShowGamesAgainst: cfg?.noShowGamesAgainst ?? 9,
   }
 
   return (
@@ -89,6 +93,14 @@ export default async function LigaEditPage({
         </header>
 
         <LeagueSettingsForm leagueId={league.id} values={values} />
+
+        <div className="mt-10 border-t border-border pt-8">
+          <DeleteLeagueSection
+            leagueId={league.id}
+            leagueName={league.name}
+            isDraft={league.status === 'draft'}
+          />
+        </div>
       </div>
     </>
   )

@@ -12,6 +12,7 @@ import {
   leagueRankingBasisLabels,
   leagueStatusLabels,
 } from '@/lib/leagues'
+import { currencyOptions } from '@/lib/money'
 import {
   updateLeague,
   type LeagueSettingsState,
@@ -38,10 +39,13 @@ export type LeagueSettingsValues = {
   startDate: string // "YYYY-MM-DD" o ""
   endDate: string
   prizes: string
+  entryFee: string // importe como texto, "" si no hay
+  currency: string
   bestOfSets: number
   goldenPoint: boolean
   tiebreakAt: number
   rankingBy: string
+  noShowGamesAgainst: number
 }
 
 // Por ahora el único formato disponible es «grupos» (antes «divisiones»).
@@ -199,6 +203,46 @@ export function LeagueSettingsForm({
         <p className="-mt-2 text-xs text-muted-foreground">
           Texto libre. Se mostrará en la página pública de la liga.
         </p>
+
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field
+            label="Costo de inscripción"
+            htmlFor="ls-entryfee"
+            error={state.fieldErrors?.entryFee?.[0]}
+          >
+            <input
+              id="ls-entryfee"
+              name="entryFee"
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              defaultValue={values.entryFee}
+              placeholder="Vacío = gratuita"
+              className={fieldCls}
+              aria-invalid={!!state.fieldErrors?.entryFee}
+            />
+          </Field>
+
+          <Field label="Moneda" htmlFor="ls-currency">
+            <select
+              id="ls-currency"
+              name="currency"
+              defaultValue={values.currency}
+              className={fieldCls}
+            >
+              {currencyOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <p className="-mt-2 text-xs text-muted-foreground">
+          Lo que paga cada jugador para entrar. Se mostrará en la página
+          pública.
+        </p>
       </fieldset>
 
       {/* ---- Configuración estructural (solo en borrador) ---- */}
@@ -231,6 +275,11 @@ export function LeagueSettingsForm({
             <input type="hidden" name="bestOfSets" value={values.bestOfSets} />
             <input type="hidden" name="tiebreakAt" value={values.tiebreakAt} />
             <input type="hidden" name="rankingBy" value={values.rankingBy} />
+            <input
+              type="hidden"
+              name="noShowGamesAgainst"
+              value={values.noShowGamesAgainst}
+            />
             {values.goldenPoint && (
               <input type="hidden" name="goldenPoint" value="on" />
             )}
@@ -331,12 +380,32 @@ export function LeagueSettingsForm({
               ))}
             </select>
           </Field>
+
+          <Field
+            label="Sanción por inasistencia (juegos)"
+            htmlFor="ls-noshow"
+            error={state.fieldErrors?.noShowGamesAgainst?.[0]}
+          >
+            <input
+              id="ls-noshow"
+              name={isDraft ? 'noShowGamesAgainst' : undefined}
+              type="number"
+              min={0}
+              max={30}
+              defaultValue={values.noShowGamesAgainst}
+              disabled={!isDraft}
+              className={fieldCls}
+              aria-invalid={!!state.fieldErrors?.noShowGamesAgainst}
+            />
+          </Field>
         </div>
 
         <p className="text-xs text-muted-foreground">
           «Por juegos ganados» ignora los sets y ordena la clasificación solo
           por juegos. «Por sets y juegos» ordena por sets, pero muestra ambas
-          columnas en la tabla.
+          columnas en la tabla. La «sanción por inasistencia» son los juegos en
+          contra que se anotan a quien no se presenta (9 por defecto; usa el
+          número que maneje tu club, p. ej. 6 o 0).
         </p>
 
         <label

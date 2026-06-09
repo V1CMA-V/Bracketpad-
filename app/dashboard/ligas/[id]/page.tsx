@@ -6,12 +6,12 @@ import { cn } from '@/lib/utils'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
 import { compareStandings } from '@/lib/standings'
+import { formatMoney } from '@/lib/money'
 import {
   leagueFormatLabels,
   leagueRankingBasisLabels,
   leagueStatusLabels,
   leagueStatusStyles,
-  standingTiebreakerLabels,
 } from '@/lib/leagues'
 import { ArrowLeft, ArrowUpRight, Pencil } from 'lucide-react'
 import Link from 'next/link'
@@ -147,19 +147,12 @@ export default async function LigaDetailPage({
     { label: 'Sets', value: cfg ? `Mejor de ${cfg.bestOfSets}` : '—' },
   ]
 
-  const tiebreakers = cfg
-    ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
-    : []
-
-  // Ranking ordenado aplicando los desempates configurados (lo que la barra
-  // lateral anuncia). Sin configuración, se usan desempates por defecto.
-  const rankingTiebreakers =
-    tiebreakers.length > 0 ? tiebreakers : ['set_diff', 'sets_won', 'game_diff']
   const rankingBy = cfg?.rankingBy ?? 'sets'
-  // Los jugadores retirados no entran en la clasificación.
+  // Los jugadores retirados no entran en la clasificación. Orden simple por el
+  // criterio principal; los empates quedan sin romper (orden estable).
   const orderedStandings = league.standings
     .filter((s) => s.registration.status !== 'withdrawn')
-    .sort((a, b) => compareStandings(a, b, rankingTiebreakers, rankingBy))
+    .sort((a, b) => compareStandings(a, b, rankingBy))
   const rankingLabel =
     rankingBy === 'games' ? 'juegos ganados' : 'sets ganados'
   // Columnas de la clasificación según el criterio: por sets (Sets/±Sets), por
@@ -376,18 +369,7 @@ export default async function LigaDetailPage({
               )}
             </section>
 
-            {/* Inscripciones */}
-            <LeagueRegistrations
-              leagueId={league.id}
-              registrations={league.registrations.map((reg) => ({
-                id: reg.id,
-                name: reg.player.fullName,
-                division: reg.division,
-                seed: reg.seed,
-                status: reg.status,
-              }))}
-              players={clubPlayers.map((p) => ({ id: p.id, name: p.fullName }))}
-            />
+
 
             {/* Jornadas */}
             <LeagueRounds
@@ -402,6 +384,19 @@ export default async function LigaDetailPage({
                 matchCount: round._count.matches,
                 status: round.status,
               }))}
+            />
+
+            {/* Inscripciones */}
+            <LeagueRegistrations
+              leagueId={league.id}
+              registrations={league.registrations.map((reg) => ({
+                id: reg.id,
+                name: reg.player.fullName,
+                division: reg.division,
+                seed: reg.seed,
+                status: reg.status,
+              }))}
+              players={clubPlayers.map((p) => ({ id: p.id, name: p.fullName }))}
             />
           </div>
 
@@ -424,32 +419,15 @@ export default async function LigaDetailPage({
                     label="Clasificación"
                     value={leagueRankingBasisLabels[rankingBy] ?? rankingBy}
                   />
+                  <DataRow
+                    label="Sanción por falta"
+                    value={`−${cfg.noShowGamesAgainst} juegos`}
+                  />
                 </dl>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">
                   Sin configuración de puntuación.
                 </p>
-              )}
-
-              {tiebreakers.length > 0 && (
-                <div className="mt-4 border-t border-border pt-4">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    Desempates · en orden
-                  </p>
-                  <ol className="mt-2 space-y-1.5">
-                    {tiebreakers.map((tb, i) => (
-                      <li
-                        key={`${tb}-${i}`}
-                        className="flex items-center gap-2 text-sm text-foreground"
-                      >
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {i + 1}.
-                        </span>
-                        {standingTiebreakerLabels[tb] ?? tb}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
               )}
             </div>
 
@@ -499,6 +477,14 @@ export default async function LigaDetailPage({
                 <DataRow
                   label="Fin"
                   value={league.endDate ? dateFmt.format(league.endDate) : '—'}
+                />
+                <DataRow
+                  label="Inscripción"
+                  value={
+                    league.entryFee != null
+                      ? formatMoney(Number(league.entryFee), league.currency)
+                      : 'Gratuita'
+                  }
                 />
                 <DataRow label="Creada" value={dateFmt.format(league.createdAt)} />
               </dl>

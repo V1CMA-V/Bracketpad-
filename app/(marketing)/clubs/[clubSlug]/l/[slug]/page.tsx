@@ -8,9 +8,9 @@ import {
   leagueFormatLabels,
   leagueRankingBasisLabels,
   leagueStatusLabels,
-  standingTiebreakerLabels,
 } from '@/lib/leagues'
-import { Mail, MapPin, Phone } from 'lucide-react'
+import { formatMoney } from '@/lib/money'
+import { Mail, MapPin, Phone, Ticket } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -140,9 +140,6 @@ export default async function PublicLeaguePage({
   const { club, league, courts } = data
 
   const cfg = league.scoringConfig
-  const tiebreakers = cfg
-    ? [cfg.tiebreaker1, cfg.tiebreaker2, cfg.tiebreaker3]
-    : ['set_diff', 'sets_won', 'game_diff']
 
   const rankingBy = cfg?.rankingBy ?? 'sets'
   const rankingLabel =
@@ -155,7 +152,7 @@ export default async function PublicLeaguePage({
   // Los jugadores retirados no entran en la clasificación.
   const orderedStandings = league.standings
     .filter((s) => s.registration.status !== 'withdrawn')
-    .sort((a, b) => compareStandings(a, b, tiebreakers, rankingBy))
+    .sort((a, b) => compareStandings(a, b, rankingBy))
 
   const rounds: PublicRound[] = league.rounds.map((round) => ({
     id: round.id,
@@ -496,6 +493,30 @@ export default async function PublicLeaguePage({
               </dl>
             </div>
 
+            {/* Costo de inscripción */}
+            <div className="rounded-sm border border-border bg-card p-5">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Inscripción
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="flex size-10 items-center justify-center rounded-full bg-forest/10 text-forest">
+                  <Ticket className="size-5" strokeWidth={1.5} />
+                </span>
+                <div>
+                  <p className="font-heading text-2xl leading-none text-ink">
+                    {league.entryFee != null
+                      ? formatMoney(Number(league.entryFee), league.currency)
+                      : 'Gratuita'}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {league.entryFee != null
+                      ? 'Costo de ingreso por jugador'
+                      : 'Entrada sin costo'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Premios */}
             {league.prizes && (
               <div className="rounded-sm border border-border bg-card p-5">
@@ -555,31 +576,16 @@ export default async function PublicLeaguePage({
                     label="Clasificación"
                     value={leagueRankingBasisLabels[rankingBy] ?? rankingBy}
                   />
+                  <DataRow
+                    label="Sanción por falta"
+                    value={`−${cfg.noShowGamesAgainst} juegos`}
+                  />
                 </dl>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">
                   Sin configuración de puntuación.
                 </p>
               )}
-
-              <div className="mt-4 border-t border-border pt-4">
-                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  Desempates · en orden
-                </p>
-                <ol className="mt-2 space-y-1.5">
-                  {tiebreakers.map((tb, i) => (
-                    <li
-                      key={`${tb}-${i}`}
-                      className="flex items-center gap-2 text-sm text-ink"
-                    >
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {i + 1}.
-                      </span>
-                      {standingTiebreakerLabels[tb] ?? tb}
-                    </li>
-                  ))}
-                </ol>
-              </div>
             </div>
           </aside>
         </div>

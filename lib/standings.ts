@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { NO_SHOW_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
+import { NO_SHOW_GAMES_AGAINST, NO_SHOW_SETS } from '@/lib/league-rules'
 
 /* -------------------------------------------------------------------------- */
 /*  Orden de la clasificación                                                  */
@@ -15,24 +15,6 @@ export type RankableStanding = {
   gamesAgainst: number
 }
 
-/** Valor numérico (mayor = mejor) de un criterio de desempate. */
-function tiebreakerValue(s: RankableStanding, criterion: string): number {
-  switch (criterion) {
-    case 'set_diff':
-      return s.setsFor - s.setsAgainst
-    case 'sets_won':
-      return s.setsFor
-    case 'game_diff':
-      return s.gamesFor - s.gamesAgainst
-    case 'games_won':
-      return s.gamesFor
-    // `head_to_head` requiere cruzar partidos entre ambos jugadores; no se
-    // resuelve a nivel de fila, así que aquí no desempata.
-    default:
-      return 0
-  }
-}
-
 /** Criterio principal de la clasificación. */
 export type RankingBasis = 'sets' | 'games' | 'both'
 
@@ -40,27 +22,18 @@ export type RankingBasis = 'sets' | 'games' | 'both'
  * Comparador de clasificación. El criterio principal depende de `rankingBy`:
  * **diferencia de juegos** (ligas que solo cuentan juegos: ordena por ±Jue) o
  * **sets ganados** (resto, incluido `both`, que solo cambia las columnas
- * mostradas, no el orden). Los empates se rompen con los desempates
- * configurados (`tiebreaker1..3`), en orden, y como último recurso por
- * victorias y menos derrotas.
+ * mostradas, no el orden). No hay lista de desempates: los empates quedan sin
+ * romper (orden estable). El ascenso/descenso de un grupo empatado lo resuelve
+ * el organizador manualmente al cerrar la jornada.
  */
 export function compareStandings(
   a: RankableStanding,
   b: RankableStanding,
-  tiebreakers: string[],
   rankingBy: RankingBasis = 'sets',
 ): number {
-  const primary =
-    rankingBy === 'games'
-      ? b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst)
-      : b.setsFor - a.setsFor
-  if (primary !== 0) return primary
-  for (const t of tiebreakers) {
-    const diff = tiebreakerValue(b, t) - tiebreakerValue(a, t)
-    if (diff !== 0) return diff
-  }
-  if (b.wins !== a.wins) return b.wins - a.wins
-  return a.losses - b.losses
+  return rankingBy === 'games'
+    ? b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst)
+    : b.setsFor - a.setsFor
 }
 
 type Acc = {
@@ -110,6 +83,14 @@ export async function recomputeStandings(leagueId: string) {
   const absent = new Set(
     absentSlots.map((s) => `${s.roundId}:${s.registration.playerId}`),
   )
+
+  // Sanción por inasistencia que fijó el club (juegos en contra). Por defecto 9.
+  const scoringConfig = await prisma.leagueScoringConfig.findUnique({
+    where: { leagueId },
+    select: { noShowGamesAgainst: true },
+  })
+  const noShowGamesAgainst =
+    scoringConfig?.noShowGamesAgainst ?? NO_SHOW_GAMES_AGAINST
 
   const matches = await prisma.match.findMany({
     where: { leagueId, status: 'finished' },
@@ -164,15 +145,15 @@ export async function recomputeStandings(leagueId: string) {
   }
 
   // Penalización por no presentarse: el jugador pierde la jornada como un forfeit
-  // de sus 3 sets rotativos (−3 juegos por set), es decir −9 en diferencia de
-  // juegos. Se aplica una vez por jornada en la que estuvo ausente.
+  // de sus 3 sets rotativos. Los juegos en contra los fija el club
+  // (`noShowGamesAgainst`, 9 por defecto). Se aplica una vez por jornada ausente.
   for (const s of absentSlots) {
     const acc = byPlayer.get(s.registration.playerId)
     if (!acc) continue
     acc.matchesPlayed += NO_SHOW_SETS
     acc.losses += NO_SHOW_SETS
     acc.setsAgainst += NO_SHOW_SETS
-    acc.gamesAgainst += NO_SHOW_SETS * NO_SHOW_GAMES_PER_SET
+    acc.gamesAgainst += noShowGamesAgainst
   }
 
   await prisma.$transaction(

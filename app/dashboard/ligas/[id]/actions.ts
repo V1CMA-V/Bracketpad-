@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { z } from 'zod'
 
 import { prisma } from '@/lib/prisma'
@@ -265,11 +266,14 @@ export type LeagueSettingsState = {
       | 'startDate'
       | 'endDate'
       | 'prizes'
+      | 'entryFee'
+      | 'currency'
       | 'format'
       | 'playKind'
       | 'bestOfSets'
       | 'tiebreakAt'
-      | 'rankingBy',
+      | 'rankingBy'
+      | 'noShowGamesAgainst',
       string[]
     >
   >
@@ -300,12 +304,16 @@ export async function updateLeague(
     startDate: (formData.get('startDate') as string) || undefined,
     endDate: (formData.get('endDate') as string) || undefined,
     prizes: (formData.get('prizes') as string) || undefined,
+    entryFee: (formData.get('entryFee') as string) || undefined,
+    currency: formData.get('currency'),
     format: formData.get('format'),
     playKind: formData.get('playKind'),
     bestOfSets: (formData.get('bestOfSets') as string) || undefined,
     goldenPoint: formData.get('goldenPoint') === 'on',
     tiebreakAt: (formData.get('tiebreakAt') as string) || undefined,
     rankingBy: formData.get('rankingBy'),
+    noShowGamesAgainst:
+      (formData.get('noShowGamesAgainst') as string) || undefined,
   })
   if (!parsed.success) {
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
@@ -326,6 +334,8 @@ export async function updateLeague(
       startDate: toDate(data.startDate),
       endDate: toDate(data.endDate),
       prizes: data.prizes ?? null,
+      entryFee: data.entryFee ?? null,
+      currency: data.currency,
       // Campos estructurales: solo en borrador.
       ...(isDraft
         ? {
@@ -338,12 +348,14 @@ export async function updateLeague(
                   goldenPoint: data.goldenPoint,
                   tiebreakAt: data.tiebreakAt,
                   rankingBy: data.rankingBy,
+                  noShowGamesAgainst: data.noShowGamesAgainst,
                 },
                 update: {
                   bestOfSets: data.bestOfSets,
                   goldenPoint: data.goldenPoint,
                   tiebreakAt: data.tiebreakAt,
                   rankingBy: data.rankingBy,
+                  noShowGamesAgainst: data.noShowGamesAgainst,
                 },
               },
             },
@@ -356,4 +368,37 @@ export async function updateLeague(
   // La página pública también muestra estos datos.
   revalidatePath(`/clubs/${club.slug}/l/${leagueId}`)
   return { success: true }
+}
+
+/**
+ * Elimina una liga por completo. La cascada de la base de datos borra su
+ * configuración de puntuación, jornadas, inscripciones, partidos y
+ * clasificación. Redirige al listado de ligas al terminar.
+ */
+export async function deleteLeague(
+  leagueId: string,
+): Promise<LeagueSettingsState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const league = await prisma.league.findFirst({
+    where: { id: leagueId, clubId: club.id },
+    select: { id: true, status: true },
+  })
+  if (!league) return { error: 'Liga no encontrada.' }
+
+  // Solo se puede eliminar una liga en borrador. Una vez activa/finalizada
+  // conserva partidos y clasificación, así que se archiva en lugar de borrarse.
+  if (league.status !== 'draft') {
+    return {
+      error:
+        'Solo se pueden eliminar ligas en borrador. Archívala si ya no la usas.',
+    }
+  }
+
+  await prisma.league.delete({ where: { id: league.id } })
+
+  revalidatePath('/dashboard/ligas')
+  revalidatePath(`/clubs/${club.slug}/ligas`)
+  redirect('/dashboard/ligas')
 }

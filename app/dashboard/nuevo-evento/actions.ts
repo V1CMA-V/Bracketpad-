@@ -60,10 +60,13 @@ export async function createEvent(input: unknown): Promise<CreateEventState> {
       playKind: data.playKind,
       startDate: toDate(data.startDate),
       endDate: toDate(data.endDate),
+      entryFee: data.entryFee ?? null,
+      currency: data.currency,
       scoringConfig: {
         create: {
           bestOfSets: data.bestOfSets,
           rankingBy: data.rankingBy,
+          noShowGamesAgainst: data.noShowGamesAgainst,
         },
       },
     },

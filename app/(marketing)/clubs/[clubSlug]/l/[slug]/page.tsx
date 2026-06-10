@@ -51,6 +51,33 @@ function formatRange(start: Date | null, end: Date | null): string {
   return 'Fechas por confirmar'
 }
 
+const weekdayNames = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+]
+
+/** Días de la semana (0=domingo … 6=sábado) en texto. */
+function formatWeekdays(days: number[]): string {
+  return [...days]
+    .sort((a, b) => a - b)
+    .map((d) => weekdayNames[d])
+    .join(', ')
+}
+
+/** "HH:MM" (24 h) a formato de 12 horas (p. ej. "7:00 p.m."). */
+function formatTime12(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return hhmm
+  const period = h < 12 ? 'a.m.' : 'p.m.'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 /** Carga la liga pública de un club por su slug. */
 async function getLeague(clubSlug: string, leagueId: string) {
   const club = await prisma.club.findUnique({
@@ -595,6 +622,45 @@ export default async function PublicLeaguePage({
                 )}
               </dl>
             </div>
+
+            {/* Calendario de la temporada */}
+            {(league.totalRounds != null ||
+              league.playWeekdays.length > 0 ||
+              league.playTimes.length > 0) && (
+              <div className="rounded-sm border border-border bg-card p-5">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Calendario
+                </p>
+                <dl className="mt-3 space-y-2.5 border-t border-border pt-4 text-sm">
+                  {league.totalRounds != null && (
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted-foreground">Jornadas</dt>
+                      <dd className="font-medium text-ink">
+                        {league.totalRounds}
+                      </dd>
+                    </div>
+                  )}
+                  {league.playWeekdays.length > 0 && (
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-muted-foreground">Días</dt>
+                      <dd className="text-right text-ink">
+                        {formatWeekdays(league.playWeekdays)}
+                      </dd>
+                    </div>
+                  )}
+                  {league.playTimes.length > 0 && (
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-muted-foreground">
+                        Horarios
+                      </dt>
+                      <dd className="text-right text-ink">
+                        {league.playTimes.map(formatTime12).join(' · ')}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
 
             {/* Costo de inscripción */}
             <div className="rounded-sm border border-border bg-card p-5">

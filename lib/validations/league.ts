@@ -50,6 +50,24 @@ export const updateLeagueSchema = z
     currency: z.enum(['MXN', 'USD', 'EUR']).default('MXN'),
 
     // --- estructurales (solo se persisten en borrador) ---
+    // Calendario de la temporada: jornadas previstas, días de juego (0=domingo
+    // … 6=sábado) y horarios recurrentes ("HH:MM").
+    totalRounds: z.coerce
+      .number()
+      .int()
+      .min(1, 'Mínimo 1 jornada.')
+      .max(50, 'Máximo 50 jornadas.')
+      .optional(),
+    playWeekdays: z
+      .array(z.coerce.number().int().min(0).max(6))
+      .max(7)
+      .optional()
+      .default([]),
+    playTimes: z
+      .array(z.string().trim().regex(/^\d{2}:\d{2}$/, 'Hora inválida.'))
+      .max(12, 'Demasiados horarios.')
+      .optional()
+      .default([]),
     format: z.enum(['round_robin', 'divisions', 'ladder'], {
       error: 'Elige un formato de liga.',
     }),

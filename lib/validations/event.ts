@@ -44,6 +44,24 @@ export const createEventSchema = z.discriminatedUnion('type', [
     name,
     startDate: optionalDate,
     endDate: optionalDate,
+    // Calendario de la temporada (informativo). Número de jornadas previstas,
+    // días de juego (0=domingo … 6=sábado) y horarios recurrentes ("HH:MM").
+    totalRounds: z.coerce
+      .number()
+      .int()
+      .min(1, 'Mínimo 1 jornada.')
+      .max(50, 'Máximo 50 jornadas.')
+      .optional(),
+    playWeekdays: z
+      .array(z.coerce.number().int().min(0).max(6))
+      .max(7)
+      .optional()
+      .default([]),
+    playTimes: z
+      .array(z.string().trim().regex(/^\d{2}:\d{2}$/, 'Hora inválida.'))
+      .max(12, 'Demasiados horarios.')
+      .optional()
+      .default([]),
     // Por ahora la liga se enfoca en el formato de grupos (antes «divisiones»).
     format: z.literal('divisions', {
       error: 'El formato de liga debe ser por grupos.',

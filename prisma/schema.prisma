@@ -233,6 +233,13 @@ model League {
   status    LeagueStatus   @default(draft)
   startDate DateTime?      @db.Date
   endDate   DateTime?      @db.Date
+  // Número de jornadas previstas de la temporada (informativo: la publicidad
+  // suele anunciarlo, p. ej. «6 jornadas»). Null = sin definir.
+  totalRounds  Int?         @db.SmallInt
+  // Calendario recurrente de juego: días de la semana (0=domingo … 6=sábado) y
+  // horarios fijos en formato "HH:MM" (p. ej. jueves a las 19:00 y 20:30).
+  playWeekdays Int[]
+  playTimes    String[]
   // Premios de la liga (texto libre): qué se gana al terminar primero en la
   // clasificación, premios por cancha/grupo, etc. Lo redacta el club.
   prizes    String?

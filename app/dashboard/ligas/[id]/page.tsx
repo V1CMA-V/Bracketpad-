@@ -32,6 +32,32 @@ function formatRange(start: Date | null, end: Date | null): string {
   return 'Sin fechas'
 }
 
+const weekdayNames = [
+  'Dom',
+  'Lun',
+  'Mar',
+  'Mié',
+  'Jue',
+  'Vie',
+  'Sáb',
+]
+
+function formatWeekdays(days: number[]): string {
+  return [...days]
+    .sort((a, b) => a - b)
+    .map((d) => weekdayNames[d])
+    .join(', ')
+}
+
+/** "HH:MM" (24 h) → 12 h (p. ej. "7:00 p.m."). */
+function formatTime12(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return hhmm
+  const period = h < 12 ? 'a.m.' : 'p.m.'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -496,6 +522,24 @@ export default async function LigaDetailPage({
                   label="Fin"
                   value={league.endDate ? dateFmt.format(league.endDate) : '—'}
                 />
+                {league.totalRounds != null && (
+                  <DataRow
+                    label="Jornadas"
+                    value={String(league.totalRounds)}
+                  />
+                )}
+                {league.playWeekdays.length > 0 && (
+                  <DataRow
+                    label="Días de juego"
+                    value={formatWeekdays(league.playWeekdays)}
+                  />
+                )}
+                {league.playTimes.length > 0 && (
+                  <DataRow
+                    label="Horarios"
+                    value={league.playTimes.map(formatTime12).join(' · ')}
+                  />
+                )}
                 <DataRow
                   label="Inscripción"
                   value={

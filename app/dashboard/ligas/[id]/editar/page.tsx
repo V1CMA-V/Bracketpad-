@@ -62,6 +62,9 @@ export default async function LigaEditPage({
     tiebreakAt: cfg?.tiebreakAt ?? 6,
     rankingBy: cfg?.rankingBy ?? 'sets',
     noShowGamesAgainst: cfg?.noShowGamesAgainst ?? 9,
+    totalRounds: league.totalRounds,
+    playWeekdays: league.playWeekdays,
+    playTimes: league.playTimes,
   }
 
   return (

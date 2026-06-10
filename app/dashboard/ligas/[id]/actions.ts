@@ -385,7 +385,10 @@ export type LeagueSettingsState = {
       | 'bestOfSets'
       | 'tiebreakAt'
       | 'rankingBy'
-      | 'noShowGamesAgainst',
+      | 'noShowGamesAgainst'
+      | 'totalRounds'
+      | 'playWeekdays'
+      | 'playTimes',
       string[]
     >
   >
@@ -418,6 +421,14 @@ export async function updateLeague(
     prizes: (formData.get('prizes') as string) || undefined,
     entryFee: (formData.get('entryFee') as string) || undefined,
     currency: formData.get('currency'),
+    totalRounds: (formData.get('totalRounds') as string) || undefined,
+    // Arrays: los días llegan como múltiples campos `playWeekdays` y los
+    // horarios como múltiples `playTimes`; se descartan las horas vacías.
+    playWeekdays: formData.getAll('playWeekdays').map((v) => String(v)),
+    playTimes: formData
+      .getAll('playTimes')
+      .map((v) => String(v).trim())
+      .filter(Boolean),
     format: formData.get('format'),
     playKind: formData.get('playKind'),
     bestOfSets: (formData.get('bestOfSets') as string) || undefined,
@@ -453,6 +464,9 @@ export async function updateLeague(
         ? {
             format: data.format,
             playKind: data.playKind,
+            totalRounds: data.totalRounds ?? null,
+            playWeekdays: data.playWeekdays,
+            playTimes: data.playTimes,
             scoringConfig: {
               upsert: {
                 create: {

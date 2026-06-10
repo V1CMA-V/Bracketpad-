@@ -13,7 +13,9 @@ import {
   ChevronDown,
   ChevronUp,
   ListOrdered,
+  Plus,
   Trophy,
+  X,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState, useTransition } from 'react'
@@ -38,6 +40,10 @@ type EventData = {
   noShowGamesAgainst: number
   entryFee: string
   currency: string
+  // Calendario de la temporada
+  totalRounds: number
+  playWeekdays: number[] // 0=domingo … 6=sábado
+  playTimes: string[] // "HH:MM"
 }
 
 const initialData: EventData = {
@@ -54,6 +60,21 @@ const initialData: EventData = {
   noShowGamesAgainst: 9,
   entryFee: '',
   currency: 'MXN',
+  totalRounds: 6,
+  playWeekdays: [],
+  playTimes: [],
+}
+
+// Días de la semana (0=domingo … 6=sábado), abreviados para los chips.
+const weekdayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
+/** Lista de días seleccionados en texto, o «Sin definir». */
+function formatWeekdays(days: number[]): string {
+  if (days.length === 0) return 'Sin definir'
+  return [...days]
+    .sort((a, b) => a - b)
+    .map((d) => weekdayLabels[d])
+    .join(', ')
 }
 
 type StepDef = {
@@ -107,7 +128,7 @@ const ligaSteps: StepDef[] = [
     eyebrow: 'Paso 02 · Datos de la liga',
     heading: 'La',
     italic: 'identidad.',
-    desc: 'Ponle nombre y fechas a la temporada. Podrás afinar los detalles más adelante.',
+    desc: 'Ponle nombre, fechas y el calendario de juego (jornadas, días y horarios). Podrás afinar los detalles más adelante.',
   },
   {
     key: 'formato',
@@ -234,6 +255,90 @@ function NumberField({
           {hint}
         </p>
       )}
+    </div>
+  )
+}
+
+/** Selector múltiple de días de la semana (chips). */
+function WeekdayPicker({
+  value,
+  onChange,
+}: {
+  value: number[]
+  onChange: (v: number[]) => void
+}) {
+  const toggle = (d: number) =>
+    onChange(
+      value.includes(d)
+        ? value.filter((x) => x !== d)
+        : [...value, d].sort((a, b) => a - b),
+    )
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {weekdayLabels.map((label, d) => {
+        const active = value.includes(d)
+        return (
+          <button
+            key={d}
+            type="button"
+            onClick={() => toggle(d)}
+            aria-pressed={active}
+            className={cn(
+              'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+              active
+                ? 'border-foreground bg-foreground text-background'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Lista editable de horarios recurrentes ("HH:MM"). */
+function TimeList({
+  value,
+  onChange,
+}: {
+  value: string[]
+  onChange: (v: string[]) => void
+}) {
+  const setAt = (i: number, v: string) =>
+    onChange(value.map((t, j) => (j === i ? v : t)))
+  const add = () => onChange([...value, ''])
+  const removeAt = (i: number) => onChange(value.filter((_, j) => j !== i))
+  return (
+    <div className="space-y-2">
+      {value.map((t, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            type="time"
+            className={cn(inputCls, 'max-w-40')}
+            value={t}
+            onChange={(e) => setAt(i, e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => removeAt(i)}
+            aria-label="Quitar horario"
+            className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta"
+          >
+            <X className="size-4" strokeWidth={2} />
+          </button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        className="h-9 gap-1.5 rounded-md px-3 text-sm"
+        onClick={add}
+      >
+        <Plus className="size-4" strokeWidth={2} />
+        Añadir horario
+      </Button>
     </div>
   )
 }
@@ -374,6 +479,43 @@ function StepIdentidad({ data, update }: StepProps) {
           </Field>
         </div>
       </StepSection>
+
+      {!isTorneo && (
+        <StepSection num="2.3" title="Calendario">
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <NumberField
+                label="Número de jornadas"
+                value={data.totalRounds}
+                onChange={(v) => update({ totalRounds: v })}
+                min={1}
+                max={50}
+                hint="Jornadas previstas de la temporada"
+              />
+              <div className="rounded-xl border border-border bg-card p-4">
+                <Field
+                  label="Días de juego"
+                  hint="Marca los días de la semana en que se juega."
+                >
+                  <WeekdayPicker
+                    value={data.playWeekdays}
+                    onChange={(v) => update({ playWeekdays: v })}
+                  />
+                </Field>
+              </div>
+            </div>
+            <Field
+              label="Horarios recurrentes"
+              hint="Las horas fijas de inicio de cada día (p. ej. 19:00 y 20:30)."
+            >
+              <TimeList
+                value={data.playTimes}
+                onChange={(v) => update({ playTimes: v })}
+              />
+            </Field>
+          </div>
+        </StepSection>
+      )}
 
       {isTorneo && (
         <StepSection num="2.3" title="Ubicación y descripción">
@@ -610,6 +752,12 @@ function StepRevisar({ data }: StepProps) {
           { label: 'Tipo', value: 'Liga' },
           { label: 'Nombre', value: data.name || 'Sin definir' },
           { label: 'Fechas', value: dateRange },
+          { label: 'Jornadas', value: `${data.totalRounds}` },
+          { label: 'Días de juego', value: formatWeekdays(data.playWeekdays) },
+          {
+            label: 'Horarios',
+            value: data.playTimes.filter((t) => t.trim()).join(' · ') || 'Sin definir',
+          },
           {
             label: 'Modalidad',
             value:
@@ -791,6 +939,9 @@ export function EventWizard() {
               name: data.name,
               startDate: data.startDate || undefined,
               endDate: data.endDate || undefined,
+              totalRounds: data.totalRounds,
+              playWeekdays: data.playWeekdays,
+              playTimes: data.playTimes.filter((t) => t.trim()),
               format: data.format,
               playKind: data.playKind,
               bestOfSets: data.bestOfSets,

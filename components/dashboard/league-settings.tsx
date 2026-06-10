@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Lock } from 'lucide-react'
+import { Lock, Plus, X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,9 @@ const playKindLabels: Record<string, string> = {
   pairs: 'Por parejas',
 }
 
+// Días de la semana (0=domingo … 6=sábado), abreviados para los chips.
+const weekdayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
 export type LeagueSettingsValues = {
   name: string
   status: string
@@ -46,6 +49,10 @@ export type LeagueSettingsValues = {
   tiebreakAt: number
   rankingBy: string
   noShowGamesAgainst: number
+  // Calendario de la temporada (estructural: editable solo en borrador).
+  totalRounds: number | null
+  playWeekdays: number[]
+  playTimes: string[]
 }
 
 // Por ahora el único formato disponible es «grupos» (antes «divisiones»).
@@ -85,6 +92,8 @@ export function LeagueSettingsForm({
   const router = useRouter()
   const [state, setState] = useState<LeagueSettingsState>(initialState)
   const [pending, startTransition] = useTransition()
+  // Lista editable de horarios recurrentes (solo se modifica en borrador).
+  const [times, setTimes] = useState<string[]>(values.playTimes)
 
   // Solo en borrador se pueden cambiar los datos estructurales (formato, tipo
   // de juego y puntuación). Activa/finalizada/archivada → solo datos menores.
@@ -423,6 +432,122 @@ export function LeagueSettingsForm({
           />
           Punto de oro en deuce
         </label>
+      </fieldset>
+
+      {/* ---- Calendario (solo en borrador) ---- */}
+      <fieldset className="space-y-5 rounded-xl border border-border bg-card p-6">
+        <legend className="-mb-1 flex items-center gap-2 px-1">
+          <span className={labelCls}>Calendario</span>
+          {!isDraft && (
+            <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-ochre">
+              <Lock className="size-3" strokeWidth={2} />
+              Bloqueado
+            </span>
+          )}
+        </legend>
+
+        {!isDraft && (
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            El calendario (jornadas, días y horarios) solo se puede editar
+            mientras la liga está en borrador.
+          </p>
+        )}
+
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <Field
+            label="Número de jornadas"
+            htmlFor="ls-rounds"
+            error={state.fieldErrors?.totalRounds?.[0]}
+          >
+            <input
+              id="ls-rounds"
+              name={isDraft ? 'totalRounds' : undefined}
+              type="number"
+              min={1}
+              max={50}
+              defaultValue={values.totalRounds ?? ''}
+              disabled={!isDraft}
+              placeholder="Ej. 6"
+              className={fieldCls}
+              aria-invalid={!!state.fieldErrors?.totalRounds}
+            />
+          </Field>
+
+          <Field label="Días de juego">
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {weekdayLabels.map((label, d) => (
+                <label
+                  key={d}
+                  className={cn(
+                    'inline-flex cursor-pointer select-none items-center rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors has-[:checked]:border-foreground has-[:checked]:bg-foreground has-[:checked]:text-background',
+                    !isDraft && 'cursor-not-allowed opacity-60',
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    name={isDraft ? 'playWeekdays' : undefined}
+                    value={d}
+                    defaultChecked={values.playWeekdays.includes(d)}
+                    disabled={!isDraft}
+                    className="sr-only"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </Field>
+        </div>
+
+        <Field label="Horarios recurrentes">
+          <div className="space-y-2">
+            {times.map((t, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="time"
+                  name={isDraft ? 'playTimes' : undefined}
+                  value={t}
+                  disabled={!isDraft}
+                  onChange={(e) =>
+                    setTimes((arr) =>
+                      arr.map((x, j) => (j === i ? e.target.value : x)),
+                    )
+                  }
+                  className={cn(fieldCls, 'max-w-40')}
+                />
+                {isDraft && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTimes((arr) => arr.filter((_, j) => j !== i))
+                    }
+                    aria-label="Quitar horario"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta"
+                  >
+                    <X className="size-4" strokeWidth={2} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {times.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {isDraft
+                  ? 'Sin horarios. Añade las horas de inicio (p. ej. 19:00 y 20:30).'
+                  : 'Sin horarios definidos.'}
+              </p>
+            )}
+            {isDraft && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 gap-1.5 rounded-md px-3 text-sm"
+                onClick={() => setTimes((arr) => [...arr, ''])}
+              >
+                <Plus className="size-4" strokeWidth={2} />
+                Añadir horario
+              </Button>
+            )}
+          </div>
+        </Field>
       </fieldset>
 
       {/* ---- Acciones ---- */}

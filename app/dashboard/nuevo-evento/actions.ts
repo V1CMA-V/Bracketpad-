@@ -60,6 +60,9 @@ export async function createEvent(input: unknown): Promise<CreateEventState> {
       playKind: data.playKind,
       startDate: toDate(data.startDate),
       endDate: toDate(data.endDate),
+      totalRounds: data.totalRounds ?? null,
+      playWeekdays: data.playWeekdays,
+      playTimes: data.playTimes,
       entryFee: data.entryFee ?? null,
       currency: data.currency,
       scoringConfig: {

@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { Search, X } from 'lucide-react'
+import { MapPin, Search, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 /** Normaliza para buscar sin distinguir mayúsculas ni acentos. */
@@ -10,6 +10,13 @@ function normalize(s: string): string {
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
+}
+
+/** Parte un array en grupos consecutivos de tamaño `size`. */
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
 }
 
 /** Un jugador dentro de la clasificación de un grupo de la jornada. */
@@ -31,6 +38,8 @@ export type GroupPlayerStat = {
 export type GroupSetRow = {
   id: string
   label: string
+  // Cancha de este partido (parejas: dos partidos simultáneos, uno por pista).
+  courtName: string | null
   sideA: string[]
   sideB: string[]
   winnerSide: 'A' | 'B' | null
@@ -41,6 +50,8 @@ export type GroupSetRow = {
 /** Un grupo resuelto: clasificación + sets jugados. */
 export type PublicGroup = {
   groupNumber: number
+  // Cancha donde se juegan los partidos del grupo (null si no está asignada).
+  courtName: string | null
   players: GroupPlayerStat[]
   sets: GroupSetRow[]
 }
@@ -73,7 +84,15 @@ const movementChipClass: Record<'up' | 'down' | 'stay', string> = {
  * jornadas (cerradas y próximas) sin recargar. Por defecto se muestra la última
  * jornada con resultados.
  */
-export function GroupStandings({ rounds }: { rounds: GroupStandingRound[] }) {
+export function GroupStandings({
+  rounds,
+  isPairs = false,
+}: {
+  rounds: GroupStandingRound[]
+  // En parejas, los partidos del grupo se agrupan por ronda de juego (R1, R2…)
+  // en lugar de listarse como sets sueltos (S1, S2…).
+  isPairs?: boolean
+}) {
   // Por defecto, la jornada cerrada más reciente; si ninguna está cerrada, la
   // primera de la lista (la próxima más cercana).
   const defaultId = useMemo(() => {
@@ -198,6 +217,7 @@ export function GroupStandings({ rounds }: { rounds: GroupStandingRound[] }) {
                   key={group.groupNumber}
                   group={group}
                   pending={active.pending}
+                  isPairs={isPairs}
                   isHit={isHit}
                 />
               ))}
@@ -219,22 +239,30 @@ export function GroupStandings({ rounds }: { rounds: GroupStandingRound[] }) {
 function GroupCard({
   group,
   pending,
+  isPairs,
   isHit,
 }: {
   group: PublicGroup
   pending: boolean
+  isPairs: boolean
   isHit: (name: string) => boolean
 }) {
   return (
     <div className="rounded-xl border border-border bg-card/40 p-4">
       <div className="min-w-0">
-        <h4 className="flex items-baseline gap-2">
+        <h4 className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="font-heading text-xl tracking-tight text-ink">
             Grupo {group.groupNumber}
           </span>
           {group.groupNumber === 1 && (
             <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               Más alto
+            </span>
+          )}
+          {group.courtName && (
+            <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-forest/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-forest">
+              <MapPin className="size-3" strokeWidth={1.75} />
+              {group.courtName}
             </span>
           )}
         </h4>
@@ -434,35 +462,85 @@ function GroupCard({
         })}
       </ul>
 
-      {/* Sets jugados / por jugar (mini marcador apilado) */}
-      {group.sets.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {group.sets.map((s) => (
-            <div
-              key={s.id}
-              className="flex items-start gap-3 rounded-md border border-border bg-background/40 px-3 py-2.5"
-            >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded border border-border font-mono text-[10px] text-muted-foreground tabular-nums">
-                {s.label}
-              </span>
-              <div className="min-w-0 flex-1 space-y-1">
-                <SetLine
-                  players={s.sideA}
-                  winner={s.winnerSide === 'A'}
-                  score={s.scoreA}
-                  isHit={isHit}
-                />
-                <SetLine
-                  players={s.sideB}
-                  winner={s.winnerSide === 'B'}
-                  score={s.scoreB}
-                  isHit={isHit}
-                />
+      {/* Enfrentamientos jugados / por jugar (mini marcador apilado).
+          · Parejas: agrupados por ronda de juego (R1, R2…), de tantos partidos
+            simultáneos como pistas usa el grupo (floor de equipos / 2).
+          · Individual: un set rotativo por fila (S1, S2…). */}
+      {group.sets.length > 0 &&
+        (isPairs ? (
+          <div className="mt-3 space-y-2.5">
+            {chunk(
+              group.sets,
+              Math.max(1, Math.floor(group.players.length / 2)),
+            ).map((roundSets, i) => (
+              <div
+                key={roundSets[0].id}
+                className="rounded-md border border-border bg-background/40 px-3 py-2.5"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded border border-border font-mono text-[10px] text-muted-foreground tabular-nums">
+                    R{i + 1}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Ronda {i + 1}
+                  </span>
+                </div>
+                <div className="divide-y divide-border/60">
+                  {roundSets.map((s) => (
+                    <div key={s.id} className="py-2 first:pt-0 last:pb-0">
+                      {s.courtName && (
+                        <p className="mb-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                          {s.courtName}
+                        </p>
+                      )}
+                      <div className="space-y-1">
+                        <SetLine
+                          players={s.sideA}
+                          winner={s.winnerSide === 'A'}
+                          score={s.scoreA}
+                          isHit={isHit}
+                        />
+                        <SetLine
+                          players={s.sideB}
+                          winner={s.winnerSide === 'B'}
+                          score={s.scoreB}
+                          isHit={isHit}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {group.sets.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-start gap-3 rounded-md border border-border bg-background/40 px-3 py-2.5"
+              >
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded border border-border font-mono text-[10px] text-muted-foreground tabular-nums">
+                  {s.label}
+                </span>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <SetLine
+                    players={s.sideA}
+                    winner={s.winnerSide === 'A'}
+                    score={s.scoreA}
+                    isHit={isHit}
+                  />
+                  <SetLine
+                    players={s.sideB}
+                    winner={s.winnerSide === 'B'}
+                    score={s.scoreB}
+                    isHit={isHit}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
     </div>
   )
 }

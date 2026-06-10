@@ -267,6 +267,17 @@ export default async function PublicLeaguePage({
         const sidePlayers = (m: (typeof matches)[number], side: 'A' | 'B') =>
           m.sides.find((x) => x.side === side)?.players ?? []
 
+        // Cancha del grupo: normalmente todos sus partidos se juegan en la misma
+        // pista. Si hubiera varias, se listan separadas por « · ».
+        const courtNames = [
+          ...new Set(
+            matches
+              .map((m) => m.court?.name)
+              .filter((n): n is string => Boolean(n)),
+          ),
+        ]
+        const courtName = courtNames.length > 0 ? courtNames.join(' · ') : null
+
         // Acumula sets y juegos por jugador presente a partir de cada set
         // jugado (un set por partido en el formato individual rotativo).
         const acc = new Map<
@@ -347,6 +358,7 @@ export default async function PublicLeaguePage({
         const sets: GroupSetRow[] = matches.map((m) => ({
           id: m.id,
           label: `S${m.intraGroupOrder ?? '?'}`,
+          courtName: m.court?.name ?? null,
           sideA: sidePlayers(m, 'A').map((p) => p.player.fullName),
           sideB: sidePlayers(m, 'B').map((p) => p.player.fullName),
           winnerSide: pending ? null : m.winnerSide,
@@ -354,7 +366,7 @@ export default async function PublicLeaguePage({
           scoreB: pending ? null : (m.sets[0]?.gamesB ?? null),
         }))
 
-        return { groupNumber, players, sets }
+        return { groupNumber, courtName, players, sets }
       })
 
       return {
@@ -498,7 +510,10 @@ export default async function PublicLeaguePage({
                   </h2>
                 </div>
                 <div className="mt-6">
-                  <GroupStandings rounds={groupStandingRounds} />
+                  <GroupStandings
+                    rounds={groupStandingRounds}
+                    isPairs={isPairs}
+                  />
                 </div>
               </section>
             )}

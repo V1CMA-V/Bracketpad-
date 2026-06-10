@@ -6,6 +6,7 @@ import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   leagueRoundStatusLabels,
   leagueRoundStatusStyles,
@@ -34,13 +35,13 @@ export type RoundItem = {
 function RoundRow({ leagueId, round }: { leagueId: string; round: RoundItem }) {
   const [pending, startTransition] = useTransition()
 
+  const label = round.name ?? `Jornada ${round.roundNumber}`
+  const removeExtra =
+    round.matchCount > 0
+      ? `Sus ${round.matchCount} partido(s) quedarán sin jornada.`
+      : 'Esta acción no se puede deshacer.'
+
   const remove = () => {
-    const label = round.name ?? `Jornada ${round.roundNumber}`
-    const extra =
-      round.matchCount > 0
-        ? ` Sus ${round.matchCount} partido(s) quedarán sin jornada.`
-        : ''
-    if (!confirm(`¿Eliminar ${label}?${extra}`)) return
     startTransition(() => {
       void deleteRound(round.id)
     })
@@ -98,15 +99,23 @@ function RoundRow({ leagueId, round }: { leagueId: string; round: RoundItem }) {
           strokeWidth={2}
         />
       </Link>
-      <button
-        type="button"
-        onClick={remove}
-        disabled={pending}
-        title="Eliminar jornada"
-        className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
-      >
-        <Trash2 className="size-4" strokeWidth={2} />
-      </button>
+      <ConfirmDialog
+        title={`¿Eliminar ${label}?`}
+        description={removeExtra}
+        confirmLabel="Eliminar"
+        destructive
+        onConfirm={remove}
+        trigger={
+          <button
+            type="button"
+            disabled={pending}
+            title="Eliminar jornada"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
+          >
+            <Trash2 className="size-4" strokeWidth={2} />
+          </button>
+        }
+      />
     </li>
   )
 }

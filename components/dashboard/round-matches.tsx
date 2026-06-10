@@ -19,6 +19,7 @@ import {
 import { cn } from '@/lib/utils'
 import { MAX_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   captureGroupResults,
   captureMatchResult,
@@ -678,7 +679,6 @@ function MatchRow({
     setPanel((p) => (p === which ? 'none' : which))
 
   const remove = () => {
-    if (!confirm('¿Eliminar este partido?')) return
     startTransition(() => {
       void deleteMatch(match.id)
     })
@@ -787,15 +787,23 @@ function MatchRow({
           >
             {panel === 'result' ? 'Cerrar' : finished ? 'Editar' : 'Resultado'}
           </button>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={pending}
-            title="Eliminar partido"
-            className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
-          >
-            <Trash2 className="size-4" strokeWidth={2} />
-          </button>
+          <ConfirmDialog
+            title="¿Eliminar este partido?"
+            description="Esta acción no se puede deshacer."
+            confirmLabel="Eliminar"
+            destructive
+            onConfirm={remove}
+            trigger={
+              <button
+                type="button"
+                disabled={pending}
+                title="Eliminar partido"
+                className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
+              >
+                <Trash2 className="size-4" strokeWidth={2} />
+              </button>
+            }
+          />
         </div>
       </div>
 
@@ -1366,7 +1374,6 @@ function GroupCard({
     !!highlight && normalizeText(name).includes(highlight)
 
   const remove = () => {
-    if (!confirm(`¿Eliminar el grupo ${group.groupNumber} y sus 3 sets?`)) return
     startRemove(() => {
       void deleteGroup(roundId, group.groupNumber)
     })
@@ -1473,15 +1480,23 @@ function GroupCard({
           >
             <Clock className="size-4" strokeWidth={2} />
           </button>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={removing}
-            title="Eliminar grupo"
-            className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
-          >
-            <Trash2 className="size-4" strokeWidth={2} />
-          </button>
+          <ConfirmDialog
+            title={`¿Eliminar el grupo ${group.groupNumber}?`}
+            description="Se borrarán sus 3 sets. Esta acción no se puede deshacer."
+            confirmLabel="Eliminar"
+            destructive
+            onConfirm={remove}
+            trigger={
+              <button
+                type="button"
+                disabled={removing}
+                title="Eliminar grupo"
+                className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
+              >
+                <Trash2 className="size-4" strokeWidth={2} />
+              </button>
+            }
+          />
         </div>
       </div>
 

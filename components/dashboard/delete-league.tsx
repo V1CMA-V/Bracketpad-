@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { deleteLeague } from '@/app/dashboard/ligas/[id]/actions'
 
 /**
@@ -25,10 +26,6 @@ export function DeleteLeagueSection({
   const [pending, startTransition] = useTransition()
 
   const onDelete = () => {
-    const ok = confirm(
-      `¿Eliminar la liga «${leagueName}»?\n\nSe borrarán sus jornadas, inscripciones, partidos y clasificación. Esta acción no se puede deshacer.`,
-    )
-    if (!ok) return
     setError(null)
     startTransition(async () => {
       // En caso de éxito el action redirige; aquí solo llegamos con error.
@@ -52,16 +49,24 @@ export function DeleteLeagueSection({
           </p>
         </div>
         {isDraft && (
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onDelete}
-            disabled={pending}
-            className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
-          >
-            <Trash2 className="size-4" strokeWidth={2} />
-            {pending ? 'Eliminando…' : 'Eliminar liga'}
-          </Button>
+          <ConfirmDialog
+            title={`¿Eliminar la liga «${leagueName}»?`}
+            description="Se borrarán sus jornadas, inscripciones, partidos y clasificación. Esta acción no se puede deshacer."
+            confirmLabel="Eliminar liga"
+            destructive
+            onConfirm={onDelete}
+            trigger={
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending}
+                className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
+              >
+                <Trash2 className="size-4" strokeWidth={2} />
+                {pending ? 'Eliminando…' : 'Eliminar liga'}
+              </Button>
+            }
+          />
         )}
       </div>
       {error && (

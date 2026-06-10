@@ -5,6 +5,7 @@ import { Plus, RotateCcw, Trash2, UserMinus } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { registrationStatusLabels } from '@/lib/leagues'
 import {
   registerPair,
@@ -43,7 +44,6 @@ function RegistrationRow({
     })
 
   const remove = () => {
-    if (!confirm(`¿Eliminar la inscripción de ${reg.name}?`)) return
     startTransition(() => {
       void removeRegistration(reg.id)
     })
@@ -101,15 +101,23 @@ function RegistrationRow({
             <UserMinus className="size-4" strokeWidth={2} />
           )}
         </button>
-        <button
-          type="button"
-          onClick={remove}
-          disabled={pending}
-          title="Eliminar inscripción"
-          className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
-        >
-          <Trash2 className="size-4" strokeWidth={2} />
-        </button>
+        <ConfirmDialog
+          title={`¿Eliminar la inscripción de ${reg.name}?`}
+          description="Se quitará de la liga junto con su clasificación. Esta acción no se puede deshacer."
+          confirmLabel="Eliminar"
+          destructive
+          onConfirm={remove}
+          trigger={
+            <button
+              type="button"
+              disabled={pending}
+              title="Eliminar inscripción"
+              className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
+            >
+              <Trash2 className="size-4" strokeWidth={2} />
+            </button>
+          }
+        />
       </div>
     </li>
   )

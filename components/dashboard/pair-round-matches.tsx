@@ -6,6 +6,7 @@ import { Clock, Plus, Save, Search, Trash2, Wand2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MAX_GAMES_PER_SET } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   captureGroupResults,
   createPairGroup,
@@ -539,8 +540,6 @@ function PairGroupCard({
     !!highlight && normalizeText(name).includes(highlight)
 
   const remove = () => {
-    if (!confirm(`¿Eliminar el grupo ${group.groupNumber} y sus 6 partidos?`))
-      return
     startRemove(() => void deleteGroup(roundId, group.groupNumber))
   }
 
@@ -620,15 +619,23 @@ function PairGroupCard({
           >
             <Clock className="size-4" strokeWidth={2} />
           </button>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={removing}
-            title="Eliminar grupo"
-            className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
-          >
-            <Trash2 className="size-4" strokeWidth={2} />
-          </button>
+          <ConfirmDialog
+            title={`¿Eliminar el grupo ${group.groupNumber}?`}
+            description="Se borrarán sus 6 partidos. Esta acción no se puede deshacer."
+            confirmLabel="Eliminar"
+            destructive
+            onConfirm={remove}
+            trigger={
+              <button
+                type="button"
+                disabled={removing}
+                title="Eliminar grupo"
+                className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-terracotta/40 hover:bg-terracotta/10 hover:text-terracotta disabled:opacity-50"
+              >
+                <Trash2 className="size-4" strokeWidth={2} />
+              </button>
+            }
+          />
         </div>
       </div>
 

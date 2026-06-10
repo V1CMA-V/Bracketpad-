@@ -5,6 +5,7 @@ import { Eye, EyeOff, Lock, LockOpen, Pencil, X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   leagueRoundStatusLabels,
   leagueRoundStatusStyles,
@@ -57,12 +58,6 @@ export function RoundSettings({
   // individuales también existe «Cerrar y generar siguiente», que además crea
   // la jornada siguiente con el ascenso/descenso). Se puede reabrir.
   const closeRound = () => {
-    if (
-      !confirm(
-        '¿Cerrar la jornada? Quedará bloqueada para edición y sus resultados se mostrarán en la página pública. Podrás reabrirla.',
-      )
-    )
-      return
     startClose(() => {
       void setRoundStatus(roundId, 'closed')
     })
@@ -166,16 +161,23 @@ export function RoundSettings({
                 </>
               )}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={closeRound}
-              disabled={closePending}
-              className="h-9 gap-1.5 rounded-md px-3 text-sm"
-            >
-              <Lock className="size-4" strokeWidth={2} />
-              {closePending ? 'Cerrando…' : 'Cerrar jornada'}
-            </Button>
+            <ConfirmDialog
+              title="¿Cerrar la jornada?"
+              description="Quedará bloqueada para edición y sus resultados se mostrarán en la página pública. Podrás reabrirla."
+              confirmLabel="Cerrar jornada"
+              onConfirm={closeRound}
+              trigger={
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={closePending}
+                  className="h-9 gap-1.5 rounded-md px-3 text-sm"
+                >
+                  <Lock className="size-4" strokeWidth={2} />
+                  {closePending ? 'Cerrando…' : 'Cerrar jornada'}
+                </Button>
+              }
+            />
           </div>
         )}
       </div>

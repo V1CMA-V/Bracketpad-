@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { MAX_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DurationSelect } from '@/components/dashboard/duration-select'
 import {
   captureGroupResults,
   captureMatchResult,
@@ -81,6 +82,7 @@ export type MatchItem = {
   courtName: string | null
   scheduledLabel: string | null
   scheduledValue: string | null
+  durationMinutes: number | null
   sideA: SidePlayer[]
   sideB: SidePlayer[]
   sets: { gamesA: number; gamesB: number }[]
@@ -416,6 +418,12 @@ function CreateGroupForm({
             ))}
           </select>
         </div>
+        <div className="sm:w-28">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Apartado
+          </label>
+          <DurationSelect />
+        </div>
         <Button
           type="submit"
           className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
@@ -425,6 +433,9 @@ function CreateGroupForm({
           {pending ? 'Creando…' : 'Crear grupo'}
         </Button>
       </div>
+      {state.error && (
+        <p className="mt-2 text-xs text-destructive">{state.error}</p>
+      )}
       {(state.fieldErrors?.groupNumber?.[0] ||
         state.fieldErrors?.scheduledAt?.[0]) && (
         <p className="mt-1.5 text-xs text-destructive">
@@ -966,6 +977,9 @@ function GroupDetailsForm({
     if (state.success) onDone()
   }, [state.success, onDone])
 
+  const duration =
+    group.matches.find((m) => m.durationMinutes != null)?.durationMinutes ?? null
+
   return (
     <form action={formAction} className="mt-3 border-t border-border pt-3">
       {state.error && (
@@ -1006,6 +1020,12 @@ function GroupDetailsForm({
             ))}
           </select>
         </div>
+        <div>
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Apartado
+          </label>
+          <DurationSelect defaultValue={duration} />
+        </div>
         <Button
           type="submit"
           variant="outline"
@@ -1017,7 +1037,7 @@ function GroupDetailsForm({
         </Button>
       </div>
       <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-        Aplica el horario y la cancha a los 3 sets del grupo.
+        Aplica el horario, la cancha y el apartado a los 3 sets del grupo.
       </p>
     </form>
   )

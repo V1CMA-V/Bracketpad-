@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { MAX_GAMES_PER_SET } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { DurationSelect } from '@/components/dashboard/duration-select'
 import {
   captureGroupResults,
   createPairGroup,
@@ -305,6 +306,12 @@ function CreatePairGroupForm({
             aria-invalid={!!state.fieldErrors?.scheduledAt}
           />
         </div>
+        <div className="sm:w-32">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Apartado
+          </label>
+          <DurationSelect />
+        </div>
         <Button
           type="submit"
           className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
@@ -314,9 +321,9 @@ function CreatePairGroupForm({
           {pending ? 'Creando…' : 'Crear grupo'}
         </Button>
       </div>
-      {state.fieldErrors?.groupNumber?.[0] && (
+      {(state.error || state.fieldErrors?.groupNumber?.[0]) && (
         <p className="mt-1.5 text-xs text-destructive">
-          {state.fieldErrors.groupNumber[0]}
+          {state.error ?? state.fieldErrors?.groupNumber?.[0]}
         </p>
       )}
       <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
@@ -360,11 +367,13 @@ function PairGroupDetailsForm({
   const courtA = courtOf([1, 3, 5])
   const courtB = courtOf([2, 4, 6])
   const when = group.matches.find((m) => m.scheduledValue)?.scheduledValue ?? ''
+  const duration =
+    group.matches.find((m) => m.durationMinutes != null)?.durationMinutes ?? null
 
   return (
     <form
       action={formAction}
-      className="mt-3 grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-3"
+      className="mt-3 grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2 lg:grid-cols-4"
     >
       <div>
         <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -410,12 +419,18 @@ function PairGroupDetailsForm({
           aria-invalid={!!state.fieldErrors?.scheduledAt}
         />
       </div>
+      <div>
+        <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          Apartado
+        </label>
+        <DurationSelect defaultValue={duration} />
+      </div>
       {(state.error || state.fieldErrors?.courtBId?.[0]) && (
-        <p className="text-xs text-destructive sm:col-span-3">
+        <p className="text-xs text-destructive sm:col-span-2 lg:col-span-4">
           {state.error ?? state.fieldErrors?.courtBId?.[0]}
         </p>
       )}
-      <div className="flex justify-end gap-2 sm:col-span-3">
+      <div className="flex justify-end gap-2 sm:col-span-2 lg:col-span-4">
         <Button
           type="button"
           variant="ghost"

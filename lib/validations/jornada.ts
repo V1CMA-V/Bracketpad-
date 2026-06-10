@@ -36,9 +36,19 @@ export const createMatchSchema = z.object({
   b2: z.string().trim().optional(),
 })
 
+// Minutos que cada partido aparta la cancha (duración de la ronda). Define el
+// escalonado de las rondas siguientes en la programación.
+export const matchDuration = z.coerce
+  .number()
+  .int('La duración debe ser un número entero.')
+  .min(30, 'Mínimo 30 minutos.')
+  .max(240, 'Máximo 240 minutos.')
+  .optional()
+
 // Crear un grupo de 4 jugadores individuales (genera los 3 sets rotativos).
 export const createGroupSchema = z.object({
   courtId: z.string().trim().optional(),
+  durationMinutes: matchDuration,
   // Grupo/nivel: 1 = más alto. Vacío = se asigna el siguiente disponible.
   groupNumber: z.coerce
     .number()
@@ -62,6 +72,7 @@ export const createGroupSchema = z.object({
 export const createPairGroupSchema = z.object({
   courtAId: z.string().trim().min(1, 'Selecciona la cancha A.'),
   courtBId: z.string().trim().min(1, 'Selecciona la cancha B.'),
+  durationMinutes: matchDuration,
   // Grupo/nivel: 1 = más alto. Vacío = se asigna el siguiente disponible.
   groupNumber: z.coerce
     .number()

@@ -109,8 +109,24 @@ model Club {
   leagues     League[]
   tournaments Tournament[]
   matches     Match[]
+  hours       ClubHours[]
 
   @@map("club")
+}
+
+// Horario de apertura/cierre del club por día de la semana ("HH:MM"). Define el
+// rango horario de la programación de pistas, que puede variar entre semana y
+// fin de semana. Un día sin fila = cerrado ese día.
+model ClubHours {
+  clubId    String
+  dayOfWeek Int    @db.SmallInt // 0=domingo … 6=sábado
+  openTime  String
+  closeTime String
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@id([clubId, dayOfWeek])
+  @@map("club_hours")
 }
 
 model ClubMembership {
@@ -483,6 +499,10 @@ model Match {
 
   courtId     String?
   scheduledAt DateTime?
+  // Minutos que el partido aparta la cancha (duración). En los grupos de liga
+  // define cuánto dura cada ronda y, por tanto, el escalonado de las rondas
+  // siguientes. Null = duración por defecto.
+  durationMinutes Int? @db.SmallInt
   status      MatchStatus @default(scheduled)
   winnerSide  Side?
   createdAt   DateTime    @default(now())

@@ -5,6 +5,12 @@
 export const NO_SHOW_SETS = 3
 
 /**
+ * Duración por defecto (minutos) que un partido aparta la cancha cuando no se
+ * fija una explícita. En los grupos de liga marca cuánto dura cada ronda.
+ */
+export const DEFAULT_MATCH_MINUTES = 90
+
+/**
  * Juegos máximos que puede tener un lado en un set de pádel: el resultado más
  * alto posible es 7-6 (con tie-break a 6-6), así que ningún marcador supera 7.
  * Se usa para acotar los inputs de resultado y validar en el servidor.

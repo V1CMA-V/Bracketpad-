@@ -113,3 +113,63 @@ export async function deleteCourt(courtId: string) {
   await prisma.court.deleteMany({ where: { id: courtId, clubId: club.id } })
   revalidatePath('/dashboard/pistas')
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Horario del club por día de la semana                                     */
+/* -------------------------------------------------------------------------- */
+
+export type ClubHoursState = {
+  success?: boolean
+  error?: string
+}
+
+const HHMM = /^\d{2}:\d{2}$/
+const weekdayNames = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+]
+
+/**
+ * Guarda el horario del club por día de la semana. Cada día llega como tres
+ * campos: `closed-{d}` (checkbox), `open-{d}` y `close-{d}` ("HH:MM"). Un día
+ * cerrado (o sin horas) no genera fila. Reemplaza todo el horario del club.
+ */
+export async function updateClubHours(
+  _prevState: ClubHoursState,
+  formData: FormData,
+): Promise<ClubHoursState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const rows: { clubId: string; dayOfWeek: number; openTime: string; closeTime: string }[] = []
+  for (let d = 0; d < 7; d++) {
+    if (formData.get(`closed-${d}`) === 'on') continue
+    const open = ((formData.get(`open-${d}`) as string) || '').trim()
+    const close = ((formData.get(`close-${d}`) as string) || '').trim()
+    // Día abierto sin horas completas → se trata como cerrado.
+    if (!open && !close) continue
+    if (!HHMM.test(open) || !HHMM.test(close)) {
+      return { error: `Horario inválido en ${weekdayNames[d]}.` }
+    }
+    if (close <= open) {
+      return {
+        error: `En ${weekdayNames[d]} el cierre debe ser posterior a la apertura.`,
+      }
+    }
+    rows.push({ clubId: club.id, dayOfWeek: d, openTime: open, closeTime: close })
+  }
+
+  await prisma.$transaction([
+    prisma.clubHours.deleteMany({ where: { clubId: club.id } }),
+    prisma.clubHours.createMany({ data: rows }),
+  ])
+
+  revalidatePath('/dashboard/pistas')
+  revalidatePath('/dashboard/programacion')
+  return { success: true }
+}

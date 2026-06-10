@@ -168,6 +168,7 @@ export default async function JornadaDetailPage({
       courtName: m.court?.name ?? null,
       scheduledLabel: m.scheduledAt ? dateTimeFmt.format(m.scheduledAt) : null,
       scheduledValue: m.scheduledAt ? toDateTimeLocal(m.scheduledAt) : null,
+      durationMinutes: m.durationMinutes ?? null,
       sideA: side('A'),
       sideB: side('B'),
       sets: m.sets.map((s) => ({ gamesA: s.gamesA, gamesB: s.gamesB })),

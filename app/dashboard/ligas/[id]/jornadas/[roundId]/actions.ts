@@ -12,7 +12,7 @@ import {
   createMatchSchema,
   createPairGroupSchema,
 } from '@/lib/validations/jornada'
-import { MAX_GAMES_PER_SET } from '@/lib/league-rules'
+import { DEFAULT_MATCH_MINUTES, MAX_GAMES_PER_SET } from '@/lib/league-rules'
 import { compareStandings, recomputeStandings } from '@/lib/standings'
 
 export type MatchState = {
@@ -44,6 +44,106 @@ function revalidateRound(leagueId: string, roundId: string | null) {
   if (roundId) {
     revalidatePath(`/dashboard/ligas/${leagueId}/jornadas/${roundId}`)
   }
+  // El apartado de canchas se ve también en la programación.
+  revalidatePath('/dashboard/programacion')
+}
+
+/**
+ * Minutos de apartado de un campo de formulario: vacío → null (duración por
+ * defecto); número válido (30–240) → ese valor; cualquier otra cosa →
+ * 'invalid'.
+ */
+function parseDurationMinutes(value: FormDataEntryValue | null): number | null | 'invalid' {
+  const raw = (value ? String(value) : '').trim()
+  if (!raw) return null
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 30 || n > 240) return 'invalid'
+  return n
+}
+
+/** Bloque que un grupo aparta en una pista: [startMin, endMin) del día. */
+type CourtBlock = { courtId: string; startMin: number; endMin: number }
+
+/**
+ * Comprueba si las pistas/horas que apartará un grupo chocan con partidos ya
+ * programados del club ese día. Calcula la hora efectiva de cada partido
+ * existente según su ronda (igual que la programación) y busca solapes en la
+ * misma pista. Devuelve un mensaje si hay choque, o null si está libre.
+ *
+ * `exclude` omite el propio grupo al reprogramarlo (no choca consigo mismo).
+ */
+async function findScheduleConflict(
+  clubId: string,
+  when: Date,
+  blocks: CourtBlock[],
+  exclude?: { roundId: string; groupNumber: number },
+): Promise<string | null> {
+  const courtIds = [...new Set(blocks.map((b) => b.courtId))]
+  if (courtIds.length === 0) return null
+
+  const dayStart = new Date(when)
+  dayStart.setHours(0, 0, 0, 0)
+  const dayEnd = new Date(dayStart)
+  dayEnd.setDate(dayEnd.getDate() + 1)
+
+  const existing = await prisma.match.findMany({
+    where: {
+      clubId,
+      courtId: { in: courtIds },
+      scheduledAt: { gte: dayStart, lt: dayEnd },
+      ...(exclude
+        ? {
+            NOT: {
+              leagueRoundId: exclude.roundId,
+              groupNumber: exclude.groupNumber,
+            },
+          }
+        : {}),
+    },
+    select: {
+      courtId: true,
+      scheduledAt: true,
+      intraGroupOrder: true,
+      durationMinutes: true,
+      leagueId: true,
+      court: { select: { name: true } },
+      league: { select: { playKind: true } },
+    },
+  })
+
+  for (const b of blocks) {
+    for (const e of existing) {
+      if (e.courtId !== b.courtId || !e.scheduledAt) continue
+      const dur = e.durationMinutes ?? DEFAULT_MATCH_MINUTES
+      let slot = 0
+      if (e.leagueId && e.intraGroupOrder != null) {
+        slot =
+          e.league?.playKind === 'pairs'
+            ? Math.floor((e.intraGroupOrder - 1) / 2)
+            : e.intraGroupOrder - 1
+      }
+      const effStart =
+        e.scheduledAt.getHours() * 60 + e.scheduledAt.getMinutes() + slot * dur
+      const effEnd = effStart + dur
+      if (b.startMin < effEnd && effStart < b.endMin) {
+        const hh = String(Math.floor(effStart / 60)).padStart(2, '0')
+        const mm = String(effStart % 60).padStart(2, '0')
+        return `${e.court?.name ?? 'La cancha'} ya está ocupada a las ${hh}:${mm}. Elige otra cancha u horario.`
+      }
+    }
+  }
+  return null
+}
+
+/** Bloques (una por cancha) que aparta un grupo de 3 rondas desde `when`. */
+function groupBlocks(
+  when: Date,
+  courtIds: string[],
+  durationMinutes: number,
+): CourtBlock[] {
+  const startMin = when.getHours() * 60 + when.getMinutes()
+  const endMin = startMin + 3 * durationMinutes
+  return courtIds.map((courtId) => ({ courtId, startMin, endMin }))
 }
 
 /* -------------------------------------------------------------------------- */
@@ -281,6 +381,7 @@ async function persistPairGroups(
     courtBId: string
     members: PairMember[]
     scheduledAt?: Date | null
+    durationMinutes?: number | null
   }[],
 ) {
   const matchesData: Prisma.MatchCreateManyInput[] = []
@@ -309,6 +410,7 @@ async function persistPairGroups(
         intraGroupOrder: order,
         courtId: court === 'A' ? group.courtAId : group.courtBId,
         scheduledAt: group.scheduledAt ?? null,
+        durationMinutes: group.durationMinutes ?? null,
         status: 'scheduled',
       })
       for (const { side, member } of [
@@ -457,6 +559,7 @@ export async function createGroup(
 
   const parsed = createGroupSchema.safeParse({
     courtId: (formData.get('courtId') as string) || undefined,
+    durationMinutes: (formData.get('durationMinutes') as string) || undefined,
     groupNumber: (formData.get('groupNumber') as string) || undefined,
     scheduledAt: (formData.get('scheduledAt') as string) || undefined,
     p1: formData.get('p1'),
@@ -468,7 +571,7 @@ export async function createGroup(
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
   }
 
-  const { courtId, scheduledAt } = parsed.data
+  const { courtId, scheduledAt, durationMinutes } = parsed.data
   const playerIds = [parsed.data.p1, parsed.data.p2, parsed.data.p3, parsed.data.p4]
   if (new Set(playerIds).size !== 4) {
     return { error: 'Un grupo debe tener 4 jugadores distintos.' }
@@ -524,6 +627,16 @@ export async function createGroup(
 
   const when = scheduledAt ? new Date(scheduledAt) : null
 
+  // Aviso de pista ocupada: solo si se fija horario y cancha.
+  if (when && courtId) {
+    const conflict = await findScheduleConflict(
+      club.id,
+      when,
+      groupBlocks(when, [courtId], durationMinutes ?? DEFAULT_MATCH_MINUTES),
+    )
+    if (conflict) return { error: conflict }
+  }
+
   const matchesData: Prisma.MatchCreateManyInput[] = []
   const sidesData: Prisma.MatchSideCreateManyInput[] = []
   const playersData: Prisma.MatchSidePlayerCreateManyInput[] = []
@@ -539,6 +652,7 @@ export async function createGroup(
       intraGroupOrder: pi + 1,
       courtId: courtId || null,
       scheduledAt: when,
+      durationMinutes: durationMinutes ?? null,
       status: 'scheduled',
     })
     for (const { side, ids } of [
@@ -598,6 +712,7 @@ export async function createPairGroup(
   const parsed = createPairGroupSchema.safeParse({
     courtAId: (formData.get('courtAId') as string) || undefined,
     courtBId: (formData.get('courtBId') as string) || undefined,
+    durationMinutes: (formData.get('durationMinutes') as string) || undefined,
     groupNumber: (formData.get('groupNumber') as string) || undefined,
     scheduledAt: (formData.get('scheduledAt') as string) || undefined,
     t1: formData.get('t1'),
@@ -609,7 +724,7 @@ export async function createPairGroup(
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
   }
 
-  const { courtAId, courtBId, scheduledAt } = parsed.data
+  const { courtAId, courtBId, scheduledAt, durationMinutes } = parsed.data
   if (courtAId === courtBId) {
     return { fieldErrors: { courtBId: ['Las dos canchas deben ser distintas.'] } }
   }
@@ -675,13 +790,30 @@ export async function createPairGroup(
     }
   })
 
+  const when = scheduledAt ? new Date(scheduledAt) : null
+
+  // Aviso de pista ocupada: las dos canchas del grupo deben estar libres.
+  if (when) {
+    const conflict = await findScheduleConflict(
+      club.id,
+      when,
+      groupBlocks(
+        when,
+        [courtAId, courtBId],
+        durationMinutes ?? DEFAULT_MATCH_MINUTES,
+      ),
+    )
+    if (conflict) return { error: conflict }
+  }
+
   await persistPairGroups(club.id, round.leagueId, round.id, [
     {
       groupNumber,
       courtAId,
       courtBId,
       members,
-      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      scheduledAt: when,
+      durationMinutes: durationMinutes ?? null,
     },
   ])
 
@@ -851,7 +983,26 @@ export async function updatePairGroupDetails(
   })
   if (courts.length !== 2) return { error: 'Cancha no válida.' }
 
+  const duration = parseDurationMinutes(formData.get('durationMinutes'))
+  if (duration === 'invalid') {
+    return { fieldErrors: { courtBId: ['Duración inválida (30–240 min).'] } }
+  }
+
   const when = raw ? new Date(raw) : null
+  if (when) {
+    const conflict = await findScheduleConflict(
+      club.id,
+      when,
+      groupBlocks(
+        when,
+        [courtAId, courtBId],
+        duration ?? DEFAULT_MATCH_MINUTES,
+      ),
+      { roundId, groupNumber },
+    )
+    if (conflict) return { error: conflict }
+  }
+
   // Cancha A = órdenes impares (1,3,5); cancha B = pares (2,4,6).
   await prisma.$transaction([
     prisma.match.updateMany({
@@ -861,7 +1012,7 @@ export async function updatePairGroupDetails(
         clubId: club.id,
         intraGroupOrder: { in: [1, 3, 5] },
       },
-      data: { scheduledAt: when, courtId: courtAId },
+      data: { scheduledAt: when, courtId: courtAId, durationMinutes: duration },
     }),
     prisma.match.updateMany({
       where: {
@@ -870,7 +1021,7 @@ export async function updatePairGroupDetails(
         clubId: club.id,
         intraGroupOrder: { in: [2, 4, 6] },
       },
-      data: { scheduledAt: when, courtId: courtBId },
+      data: { scheduledAt: when, courtId: courtBId, durationMinutes: duration },
     }),
   ])
 
@@ -1018,11 +1169,28 @@ export async function updateGroupDetails(
     if (!court) return { error: 'Cancha no válida.' }
   }
 
+  const duration = parseDurationMinutes(formData.get('durationMinutes'))
+  if (duration === 'invalid') {
+    return { error: 'Duración inválida (30–240 min).' }
+  }
+
+  const when = raw ? new Date(raw) : null
+  if (when && rawCourt) {
+    const conflict = await findScheduleConflict(
+      club.id,
+      when,
+      groupBlocks(when, [rawCourt], duration ?? DEFAULT_MATCH_MINUTES),
+      { roundId, groupNumber },
+    )
+    if (conflict) return { error: conflict }
+  }
+
   await prisma.match.updateMany({
     where: { leagueRoundId: roundId, groupNumber, clubId: club.id },
     data: {
-      scheduledAt: raw ? new Date(raw) : null,
+      scheduledAt: when,
       courtId: rawCourt || null,
+      durationMinutes: duration,
     },
   })
 

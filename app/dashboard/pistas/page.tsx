@@ -1,5 +1,6 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import { AddCourtForm } from '@/components/dashboard/add-court-form'
+import { ClubHoursForm } from '@/components/dashboard/club-hours-form'
 import { CourtCard } from '@/components/dashboard/court-card'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
@@ -38,10 +39,16 @@ export default async function PistasPage() {
     )
   }
 
-  const courts = await prisma.court.findMany({
-    where: { clubId: club.id },
-    orderBy: { createdAt: 'asc' },
-  })
+  const [courts, clubHours] = await Promise.all([
+    prisma.court.findMany({
+      where: { clubId: club.id },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.clubHours.findMany({
+      where: { clubId: club.id },
+      select: { dayOfWeek: true, openTime: true, closeTime: true },
+    }),
+  ])
 
   const total = courts.length
   const active = courts.filter((c) => c.isActive).length
@@ -109,6 +116,9 @@ export default async function PistasPage() {
             </dl>
           )}
         </section>
+
+        {/* ---- Horario del club ---- */}
+        <ClubHoursForm hours={clubHours} />
 
         {/* ---- Formulario para agregar pista ---- */}
         <AddCourtForm />

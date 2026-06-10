@@ -28,6 +28,7 @@ export type RoundItem = {
   dateLabel: string
   matchCount: number
   status: string
+  isPreliminary: boolean
 }
 
 function RoundRow({ leagueId, round }: { leagueId: string; round: RoundItem }) {
@@ -60,8 +61,13 @@ function RoundRow({ leagueId, round }: { leagueId: string; round: RoundItem }) {
           J{round.roundNumber}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm text-foreground">
+          <p className="flex items-center gap-2 truncate text-sm text-foreground">
             {round.name ?? `Jornada ${round.roundNumber}`}
+            {round.isPreliminary && (
+              <span className="shrink-0 rounded-full bg-ochre/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest text-ochre">
+                Previa
+              </span>
+            )}
           </p>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             {round.dateLabel}
@@ -187,6 +193,18 @@ export function LeagueRounds({
             {pending ? 'Creando…' : 'Añadir jornada'}
           </Button>
         </div>
+        <label className="mt-3 flex items-start gap-2.5">
+          <input
+            type="checkbox"
+            name="isPreliminary"
+            className="mt-0.5 size-4 shrink-0 rounded border-border accent-ochre"
+          />
+          <span className="text-xs leading-relaxed text-muted-foreground">
+            <span className="text-foreground">Jornada previa</span> — para ver el
+            nivel y acomodar los grupos; sus resultados no cuentan para la
+            clasificación.
+          </span>
+        </label>
         <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
           El número de jornada se asigna automáticamente.
         </p>

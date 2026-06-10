@@ -306,6 +306,11 @@ model LeagueRound {
   // draft: solo visible en el panel. published: visible en la página pública.
   // closed: cerrada/finalizada, ya no admite cambios de nombre/fecha.
   status        LeagueRoundStatus @default(draft)
+  // Jornada previa («de nivel»): se juega para observar a los jugadores y
+  // acomodar los grupos, pero sus resultados NO cuentan para la clasificación
+  // general de la liga. Sigue admitiendo ascenso/descenso para armar la
+  // siguiente jornada.
+  isPreliminary Boolean           @default(false)
 
   league     League            @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   matches    Match[]

@@ -396,6 +396,7 @@ export default async function LigaDetailPage({
                   : 'Sin fecha',
                 matchCount: round._count.matches,
                 status: round.status,
+                isPreliminary: round.isPreliminary,
               }))}
             />
 

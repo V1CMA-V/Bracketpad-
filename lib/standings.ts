@@ -76,8 +76,12 @@ export async function recomputeStandings(leagueId: string) {
   // Jugadores ausentes (no llegaron) por jornada: su participación la cubrió un
   // suplente externo, así que sus resultados no cuentan para su clasificación
   // (los rivales sí conservan lo que jugaron). Clave: `${roundId}:${playerId}`.
+  // Las jornadas previas no puntúan, así que tampoco se penaliza la ausencia.
   const absentSlots = await prisma.leagueGroupSlot.findMany({
-    where: { attendance: 'absent', round: { leagueId } },
+    where: {
+      attendance: 'absent',
+      round: { leagueId, isPreliminary: false },
+    },
     select: { roundId: true, registration: { select: { playerId: true } } },
   })
   const absent = new Set(
@@ -92,8 +96,15 @@ export async function recomputeStandings(leagueId: string) {
   const noShowGamesAgainst =
     scoringConfig?.noShowGamesAgainst ?? NO_SHOW_GAMES_AGAINST
 
+  // Se excluyen las jornadas previas: sus resultados no cuentan para la
+  // clasificación. `NOT { leagueRound.isPreliminary }` conserva los partidos sin
+  // jornada (p. ej. los que quedaron sueltos al borrar su jornada).
   const matches = await prisma.match.findMany({
-    where: { leagueId, status: 'finished' },
+    where: {
+      leagueId,
+      status: 'finished',
+      NOT: { leagueRound: { isPreliminary: true } },
+    },
     include: {
       sides: { include: { players: { select: { playerId: true } } } },
       sets: true,

@@ -7,6 +7,8 @@ export const createRoundSchema = z.object({
     .trim()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida.')
     .optional(),
+  // Jornada previa: sus resultados no cuentan para la clasificación.
+  isPreliminary: z.boolean().optional(),
 })
 
 // Edición de una jornada: mismos campos que al crearla. El estado se cambia

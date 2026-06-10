@@ -254,6 +254,7 @@ export default async function JornadaDetailPage({
                 ? round.scheduledDate.toISOString().slice(0, 10)
                 : ''
             }
+            isPreliminary={round.isPreliminary}
           />
         </div>
 

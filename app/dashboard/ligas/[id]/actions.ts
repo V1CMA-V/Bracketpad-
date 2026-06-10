@@ -12,6 +12,7 @@ import {
 } from '@/lib/validations/registration'
 import { createRoundSchema, updateRoundSchema } from '@/lib/validations/jornada'
 import { updateLeagueSchema } from '@/lib/validations/league'
+import { recomputeStandings } from '@/lib/standings'
 
 export type RegistrationState = {
   success?: boolean
@@ -237,6 +238,7 @@ export async function createRound(
   const parsed = createRoundSchema.safeParse({
     name: (formData.get('name') as string) || undefined,
     scheduledDate: (formData.get('scheduledDate') as string) || undefined,
+    isPreliminary: formData.get('isPreliminary') === 'on',
   })
   if (!parsed.success) {
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
@@ -257,6 +259,7 @@ export async function createRound(
       scheduledDate: parsed.data.scheduledDate
         ? new Date(`${parsed.data.scheduledDate}T00:00:00`)
         : null,
+      isPreliminary: parsed.data.isPreliminary ?? false,
     },
   })
 
@@ -288,7 +291,7 @@ export async function updateRound(
 
   const round = await prisma.leagueRound.findFirst({
     where: { id: roundId, league: { clubId: club.id } },
-    select: { id: true, leagueId: true, status: true },
+    select: { id: true, leagueId: true, status: true, isPreliminary: true },
   })
   if (!round) return { error: 'Jornada no encontrada.' }
 
@@ -302,10 +305,13 @@ export async function updateRound(
   const parsed = updateRoundSchema.safeParse({
     name: (formData.get('name') as string) || undefined,
     scheduledDate: (formData.get('scheduledDate') as string) || undefined,
+    isPreliminary: formData.get('isPreliminary') === 'on',
   })
   if (!parsed.success) {
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
   }
+
+  const isPreliminary = parsed.data.isPreliminary ?? false
 
   await prisma.leagueRound.update({
     where: { id: round.id },
@@ -314,8 +320,15 @@ export async function updateRound(
       scheduledDate: parsed.data.scheduledDate
         ? new Date(`${parsed.data.scheduledDate}T00:00:00`)
         : null,
+      isPreliminary,
     },
   })
+
+  // Marcar/desmarcar como previa cambia qué resultados cuentan: recalcula la
+  // clasificación para reflejar los partidos que entran o salen del cómputo.
+  if (isPreliminary !== round.isPreliminary) {
+    await recomputeStandings(round.leagueId)
+  }
 
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${round.id}`)
@@ -346,6 +359,8 @@ export async function setRoundStatus(
 
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${round.id}`)
+  // Cerrar/publicar cambia lo que se ve en la página pública de la liga.
+  revalidatePath(`/clubs/${club.slug}/l/${round.leagueId}`)
   return { success: true }
 }
 

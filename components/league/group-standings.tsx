@@ -63,6 +63,8 @@ export type GroupStandingRound = {
   label: string
   dateLabel: string | null
   pending: boolean
+  // Jornada previa: sus resultados no cuentan para la clasificación general.
+  isPreliminary: boolean
   groups: PublicGroup[]
 }
 
@@ -198,6 +200,11 @@ export function GroupStandings({
             >
               {active.pending ? 'Próxima' : 'Finalizada'}
             </span>
+            {active.isPreliminary && (
+              <span className="rounded-full bg-ochre/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-ochre">
+                Previa · no puntúa
+              </span>
+            )}
             {active.dateLabel && (
               <span className="ml-auto font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
                 {active.dateLabel}
@@ -218,6 +225,7 @@ export function GroupStandings({
                   group={group}
                   pending={active.pending}
                   isPairs={isPairs}
+                  isPreliminary={active.isPreliminary}
                   isHit={isHit}
                 />
               ))}
@@ -240,11 +248,15 @@ function GroupCard({
   group,
   pending,
   isPairs,
+  isPreliminary,
   isHit,
 }: {
   group: PublicGroup
   pending: boolean
   isPairs: boolean
+  // Jornada previa: se ocultan las tablas de clasificación del grupo (no
+  // puntúan); solo se muestran los partidos con sus resultados.
+  isPreliminary: boolean
   isHit: (name: string) => boolean
 }) {
   return (
@@ -278,6 +290,10 @@ function GroupCard({
         </p>
       </div>
 
+      {/* Tablas de clasificación del grupo: se ocultan en jornadas previas
+          (no puntúan); abajo siguen mostrándose los partidos con su marcador. */}
+      {!isPreliminary && (
+        <>
       {/* Clasificación del grupo · tabla (≥ sm) */}
       <div className="mt-4 hidden overflow-hidden rounded-lg border border-border sm:block">
         <table className="w-full text-sm">
@@ -461,6 +477,8 @@ function GroupCard({
           )
         })}
       </ul>
+        </>
+      )}
 
       {/* Enfrentamientos jugados / por jugar (mini marcador apilado).
           · Parejas: agrupados por ronda de juego (R1, R2…), de tantos partidos

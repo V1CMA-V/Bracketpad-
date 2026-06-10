@@ -377,6 +377,7 @@ export default async function PublicLeaguePage({
           ? dayFmt.format(round.scheduledDate)
           : null,
         pending,
+        isPreliminary: round.isPreliminary,
         groups,
       }
     })

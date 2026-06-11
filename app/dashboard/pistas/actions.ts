@@ -171,5 +171,6 @@ export async function updateClubHours(
 
   revalidatePath('/dashboard/pistas')
   revalidatePath('/dashboard/programacion')
+  revalidatePath('/dashboard/ajustes')
   return { success: true }
 }

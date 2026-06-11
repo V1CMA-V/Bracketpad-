@@ -99,6 +99,16 @@ model Club {
   address   String?
   city      String?
   logoUrl   String?
+  // Identidad ampliada (editable desde Ajustes del club):
+  legalName   String? // razón social
+  taxId       String? // RFC
+  foundedYear Int?    @db.SmallInt // año de fundación
+  description String? // descripción / eslogan público
+  website     String?
+  instagram   String? // usuario sin la @
+  state       String? // estado / provincia
+  postalCode  String? // código postal
+  country     String? @default("México")
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

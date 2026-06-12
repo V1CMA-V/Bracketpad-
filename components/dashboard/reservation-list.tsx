@@ -168,7 +168,7 @@ export function ReservationList({
                 <p className="truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                   {r.courtName}
                   {r.kind === 'class' && (
-                    <span className="ml-2 text-ochre">
+                    <span className="ml-2 text-plum">
                       · Clase
                       {r.coachName ? ` · ${r.coachName}` : ''}
                       {r.playerCount ? ` · ${r.playerCount} jug.` : ''}

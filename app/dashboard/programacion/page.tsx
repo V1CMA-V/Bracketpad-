@@ -34,7 +34,13 @@ export const metadata: Metadata = {
 const DEFAULT_START = 9
 const DEFAULT_END = 21
 
-type SlotState = 'en-juego' | 'proximo' | 'disputado' | 'conflicto' | 'reserva'
+type SlotState =
+  | 'en-juego'
+  | 'proximo'
+  | 'disputado'
+  | 'conflicto'
+  | 'reserva'
+  | 'clase'
 
 type ScheduledMatch = {
   id: string
@@ -86,6 +92,7 @@ const legend: { label: string; cls: string }[] = [
   { label: 'En juego', cls: 'bg-forest' },
   { label: 'Próximo', cls: 'bg-ochre' },
   { label: 'Reserva', cls: 'bg-ink' },
+  { label: 'Clase', cls: 'bg-plum' },
   { label: 'Disputado', cls: 'bg-muted border border-border' },
   { label: 'Conflicto', cls: 'bg-terracotta' },
 ]
@@ -241,6 +248,8 @@ const toneByState: Record<SlotState, string> = {
   // Las reservas (uso privado del club) se distinguen en oscuro de los partidos
   // de competición.
   reserva: 'bg-ink text-cream',
+  // Las clases con coach destacan en ciruela para identificarlas a simple vista.
+  clase: 'bg-plum text-cream',
   disputado: 'border border-border bg-muted/60 text-muted-foreground',
   conflicto: 'bg-terracotta text-cream',
 }
@@ -420,7 +429,7 @@ export default async function ProgramacionPage({
       tag: isClass ? 'Clase' : 'Reserva',
       label: r.holderName,
       timeLabel,
-      state: 'reserva',
+      state: isClass ? 'clase' : 'reserva',
       lane: 0,
       lanes: 1,
       // Al hacer clic se abre el panel de edición (?edit=<id>).

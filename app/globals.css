@@ -54,6 +54,7 @@
   --color-terracotta: var(--terracotta);
   --color-ochre: var(--ochre);
   --color-lime: var(--lime);
+  --color-plum: var(--plum);
 }
 
 @keyframes marquee {
@@ -73,6 +74,8 @@
   --terracotta: #b85a3c;
   --ochre: #c89a4a;
   --lime: #c7d96b;
+  /* Acento ciruela apagado para las clases (programación de pistas). */
+  --plum: #6e4a5e;
 
   --background: var(--cream);
   --foreground: var(--ink);

@@ -117,7 +117,7 @@ function CtaCard({
 
 export function CTA() {
   return (
-    <section className="mx-auto w-full max-w-7xl px-6 py-16">
+    <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="grid gap-6 md:grid-cols-2">
         <CtaCard
           variant="dark"

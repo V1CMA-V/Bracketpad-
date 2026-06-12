@@ -55,8 +55,8 @@ const faqs: FaqItem[] = [
 
 export function FAQ() {
   return (
-    <section className="mx-auto w-full max-w-7xl px-6 py-20">
-      <div className="grid gap-12 md:grid-cols-12">
+    <section className="mx-auto w-full max-w-7xl px-4 py-14 sm:px-6 sm:py-20">
+      <div className="grid gap-10 md:grid-cols-12 md:gap-12">
         <div className="md:col-span-4 md:sticky md:top-24 md:self-start">
           <SectionHeader
             eyebrow="Sección · Manual de uso"
@@ -73,8 +73,8 @@ export function FAQ() {
               className={i === 0 ? 'border-t border-foreground/10' : ''}
             >
               <details className="group border-b border-foreground/10 py-5">
-                <summary className="flex cursor-pointer list-none items-start gap-6">
-                  <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground pt-1.5 w-8 shrink-0">
+                <summary className="flex cursor-pointer list-none items-start gap-3 sm:gap-6">
+                  <span className="hidden w-8 shrink-0 pt-1.5 font-mono text-xs uppercase tracking-widest text-muted-foreground sm:inline">
                     {item.number}
                   </span>
 
@@ -82,7 +82,7 @@ export function FAQ() {
                     <span className="font-mono text-[10px] uppercase tracking-widest text-terracotta">
                       {item.category}
                     </span>
-                    <span className="font-serif text-2xl leading-snug text-foreground">
+                    <span className="font-serif text-xl leading-snug text-foreground sm:text-2xl">
                       {item.question}
                     </span>
                   </div>
@@ -92,7 +92,7 @@ export function FAQ() {
                   </span>
                 </summary>
 
-                <p className="mt-4 max-w-2xl pl-14 font-serif italic text-base leading-relaxed text-foreground/75">
+                <p className="mt-4 max-w-2xl pl-0 font-serif italic text-base leading-relaxed text-foreground/75 sm:pl-14">
                   {item.answer}
                 </p>
               </details>

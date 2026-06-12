@@ -66,7 +66,7 @@ const matches: Match[] = [
 export function OnLive() {
   return (
     <section className="bg-ink text-cream">
-      <div className="mx-auto w-full max-w-7xl px-6 py-16">
+      <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
         <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
           <SectionHeader
             eyebrow="Ahora mismo · 6 pistas activas"

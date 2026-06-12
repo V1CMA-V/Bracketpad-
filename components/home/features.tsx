@@ -53,7 +53,7 @@ const tournaments: Tournament[] = [
 
 export function Features() {
   return (
-    <section className="mx-auto w-full max-w-7xl px-6 py-20">
+    <section className="mx-auto w-full max-w-7xl px-4 py-14 sm:px-6 sm:py-20">
       <div className="mb-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <SectionHeader
           eyebrow="Cartelera · Jun — Jul 2026"

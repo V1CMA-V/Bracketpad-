@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import { auth } from '@/auth'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { MobileNav } from './mobile-nav'
 import { UserMenu } from './user-menu'
 
 const links = [
@@ -19,17 +20,19 @@ export async function Header() {
   const user = session?.user
   return (
     <header className="w-full border-b border-foreground/10 bg-background">
-      <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-8 px-6">
+      <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-4 px-4 sm:gap-8 sm:px-6">
+        <MobileNav links={links} isLoggedIn={Boolean(user)} />
+
         <nav className="flex items-center gap-10">
           <Link
             href="/"
-            className="flex items-baseline gap-2 font-serif text-2xl leading-none tracking-tight"
+            className="flex items-baseline gap-2 font-serif text-xl leading-none tracking-tight sm:text-2xl"
           >
             <span className="flex items-baseline">
               bandeja
               <span className="ml-0.5 inline-block size-1.5 translate-y-[-2px] rounded-full bg-terracotta" />
             </span>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:inline">
               Est. 2026
             </span>
           </Link>
@@ -72,13 +75,13 @@ export async function Header() {
               <Button
                 asChild
                 variant="outline"
-                className="h-9 rounded-md border-foreground/15 px-4 text-sm"
+                className="hidden h-9 rounded-md border-foreground/15 px-4 text-sm md:inline-flex"
               >
                 <Link href="/login">Entrar</Link>
               </Button>
               <Button
                 asChild
-                className="h-9 rounded-md bg-ink px-4 text-sm text-cream hover:bg-ink/90"
+                className="h-9 rounded-md bg-ink px-3 text-sm text-cream hover:bg-ink/90 sm:px-4"
               >
                 <Link href="/registro/club">Crear cuenta</Link>
               </Button>

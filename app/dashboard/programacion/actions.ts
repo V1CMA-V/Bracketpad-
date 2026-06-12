@@ -222,21 +222,26 @@ async function resolveClassFields(
 
 /** Lee y valida los campos de reserva de un FormData. */
 function parseReservationForm(formData: FormData) {
+  // Algunos campos solo se renderizan en ciertos estados (coach/jugadores solo
+  // en clase; «abonado» solo en abono parcial). Cuando no están en el DOM,
+  // `formData.get` devuelve `null`; lo pasamos a `undefined` para que el schema
+  // los trate como ausentes (los campos opcionales aceptan `undefined`, no `null`).
+  const opt = (name: string) => formData.get(name) ?? undefined
   return createReservationSchema.safeParse({
     courtId: formData.get('courtId'),
     kind: formData.get('kind'),
-    coachId: formData.get('coachId'),
-    playerCount: formData.get('playerCount'),
+    coachId: opt('coachId'),
+    playerCount: opt('playerCount'),
     holderName: formData.get('holderName'),
-    phone: formData.get('phone'),
+    phone: opt('phone'),
     date: formData.get('date'),
     time: formData.get('time'),
     durationMinutes: formData.get('durationMinutes'),
     paymentStatus: formData.get('paymentStatus'),
-    price: formData.get('price'),
-    amountPaid: formData.get('amountPaid'),
+    price: opt('price'),
+    amountPaid: opt('amountPaid'),
     currency: formData.get('currency'),
-    notes: formData.get('notes'),
+    notes: opt('notes'),
   })
 }
 

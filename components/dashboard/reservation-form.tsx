@@ -18,7 +18,10 @@ import {
   type ClassPrices,
   type CoachOption,
 } from '@/components/dashboard/reservation-fields'
-import { type ReservationPaymentStatus } from '@/lib/reservations'
+import {
+  type ReservationPaymentStatus,
+  type WeekHours,
+} from '@/lib/reservations'
 import {
   createReservation,
   type ReservationFormState,
@@ -32,11 +35,14 @@ export function NewReservationButton({
   courts,
   coaches = [],
   classPrices,
+  weekHours,
   defaultDate,
 }: {
   courts: Court[]
   coaches?: CoachOption[]
   classPrices?: ClassPrices
+  // Horario del club por día de la semana (restringe la hora a la franja abierta).
+  weekHours?: WeekHours
   // Día seleccionado en la programación ("YYYY-MM-DD"), para prerellenar la fecha.
   defaultDate: string
 }) {
@@ -106,6 +112,7 @@ export function NewReservationButton({
             courts={courts}
             coaches={coaches}
             classPrices={classPrices}
+            weekHours={weekHours}
             defaults={{ date: defaultDate }}
             errors={state.fieldErrors}
             payment={payment}

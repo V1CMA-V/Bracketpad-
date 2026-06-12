@@ -20,6 +20,7 @@ import {
   formatDuration,
   paymentStatusLabels,
   type ReservationPaymentStatus,
+  type WeekHours,
 } from '@/lib/reservations'
 import { CalendarClock } from 'lucide-react'
 import type { Metadata } from 'next'
@@ -146,7 +147,7 @@ async function getSchedule(clubId: string, day: Date) {
   const dayEnd = new Date(dayStart)
   dayEnd.setDate(dayEnd.getDate() + 1)
 
-  const [courts, matches, reservations, coaches, classPricing, dayHours] =
+  const [courts, matches, reservations, coaches, classPricing, allHours] =
     await Promise.all([
     prisma.court.findMany({
       where: { clubId, isActive: true },
@@ -184,15 +185,30 @@ async function getSchedule(clubId: string, day: Date) {
     }),
     // Tarifario de clases del club (prerellena el precio al reservar una clase).
     prisma.clubClassPricing.findUnique({ where: { clubId } }),
-    // Horario del club para el día de la semana seleccionado (puede no existir
-    // si el club cierra ese día).
-    prisma.clubHours.findUnique({
-      where: { clubId_dayOfWeek: { clubId, dayOfWeek: day.getDay() } },
-      select: { openTime: true, closeTime: true },
+    // Horario del club por día de la semana: define la franja de la rejilla y las
+    // horas que el formulario de reserva ofrece para cada día.
+    prisma.clubHours.findMany({
+      where: { clubId },
+      select: { dayOfWeek: true, openTime: true, closeTime: true },
     }),
   ])
 
-  return { courts, matches, reservations, coaches, classPricing, dayHours }
+  // Horario indexado por día de la semana (0=domingo); null = cerrado ese día.
+  const weekHours: WeekHours = Array.from({ length: 7 }, () => null)
+  for (const h of allHours) {
+    weekHours[h.dayOfWeek] = { openTime: h.openTime, closeTime: h.closeTime }
+  }
+  const dayHours = weekHours[day.getDay()]
+
+  return {
+    courts,
+    matches,
+    reservations,
+    coaches,
+    classPricing,
+    weekHours,
+    dayHours,
+  }
 }
 
 type RawMatch = Awaited<ReturnType<typeof getSchedule>>['matches'][number]
@@ -337,8 +353,15 @@ export default async function ProgramacionPage({
   const todayKey = dateKey(today)
   const isToday = selectedKey === todayKey
 
-  const { courts, matches, reservations, coaches, classPricing, dayHours } =
-    await getSchedule(club.id, selected)
+  const {
+    courts,
+    matches,
+    reservations,
+    coaches,
+    classPricing,
+    weekHours,
+    dayHours,
+  } = await getSchedule(club.id, selected)
 
   // Coaches y tarifario de clases para el formulario de reserva.
   const coachOptions = coaches.map((c) => ({ id: c.id, name: c.fullName }))
@@ -696,6 +719,7 @@ export default async function ProgramacionPage({
           courts={courtOptions}
           coaches={coachOptions}
           classPrices={classPrices}
+          weekHours={weekHours}
           defaultDate={selectedKey}
         />
       </DashboardTopbar>
@@ -1012,6 +1036,7 @@ export default async function ProgramacionPage({
           courts={courtOptions}
           coaches={coachOptions}
           classPrices={classPrices}
+          weekHours={weekHours}
           day={selectedKey}
         />
       )}

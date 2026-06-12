@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { currencyOptions } from '@/lib/money'
@@ -9,8 +9,10 @@ import {
   DURATION_OPTIONS,
   paymentStatusLabels,
   RESERVATION_PAYMENT_STATUSES,
+  reservationTimeSlots,
   type ReservationKind,
   type ReservationPaymentStatus,
+  type WeekHours,
 } from '@/lib/reservations'
 
 export type ReservationFieldErrors = Partial<
@@ -83,6 +85,7 @@ export function ReservationFields({
   courts,
   coaches = [],
   classPrices = { currency: 'MXN', byCount: [] },
+  weekHours,
   defaults = {},
   errors,
   payment,
@@ -91,6 +94,9 @@ export function ReservationFields({
   courts: Court[]
   coaches?: CoachOption[]
   classPrices?: ClassPrices
+  // Horario del club por día de la semana. Si se pasa, la hora se restringe a la
+  // franja de apertura del día elegido; si se omite, se acepta cualquier hora.
+  weekHours?: WeekHours
   defaults?: ReservationDefaults
   errors?: ReservationFieldErrors
   payment: ReservationPaymentStatus
@@ -98,6 +104,25 @@ export function ReservationFields({
 }) {
   const [kind, setKind] = useState<ReservationKind>(
     defaults.kind ?? 'free_play',
+  )
+  // Fecha controlada para recalcular las horas válidas según el día elegido.
+  const [date, setDate] = useState<string>(defaults.date ?? '')
+
+  // Día de la semana de la fecha elegida (0=domingo) y su franja de apertura.
+  const dayOfWeek = useMemo(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+    return new Date(`${date}T00:00:00`).getDay()
+  }, [date])
+  const dayHours =
+    weekHours && dayOfWeek != null ? (weekHours[dayOfWeek] ?? null) : null
+  // Horas de inicio ofrecidas (más la hora ya guardada al editar, por si cae
+  // fuera de la rejilla).
+  const timeSlots = useMemo(
+    () =>
+      dayHours
+        ? reservationTimeSlots(dayHours, { include: defaults.time })
+        : [],
+    [dayHours, defaults.time],
   )
   const [playerCount, setPlayerCount] = useState<number>(
     defaults.playerCount ?? 1,
@@ -271,7 +296,8 @@ export function ReservationFields({
             id="date"
             name="date"
             type="date"
-            defaultValue={defaults.date}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
             className={cn('mt-2', fieldCls)}
             aria-invalid={!!errors?.date}
           />
@@ -281,14 +307,55 @@ export function ReservationFields({
           <label htmlFor="time" className={labelCls}>
             Hora
           </label>
-          <input
-            id="time"
-            name="time"
-            type="time"
-            defaultValue={defaults.time}
-            className={cn('mt-2', fieldCls)}
-            aria-invalid={!!errors?.time}
-          />
+          {!weekHours ? (
+            // Sin horario configurado: se acepta cualquier hora.
+            <input
+              id="time"
+              name="time"
+              type="time"
+              defaultValue={defaults.time}
+              className={cn('mt-2', fieldCls)}
+              aria-invalid={!!errors?.time}
+            />
+          ) : dayHours ? (
+            // Solo las horas dentro de la franja del club ese día. La `key` por
+            // día reinicia la elección cuando cambia la fecha (otra franja).
+            <select
+              key={`time-${dayOfWeek}`}
+              id="time"
+              name="time"
+              defaultValue={defaults.time ?? ''}
+              className={cn('mt-2', fieldCls)}
+              aria-invalid={!!errors?.time}
+            >
+              <option value="">Elige hora…</option>
+              {timeSlots.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          ) : (
+            // El club cierra ese día: no hay horas válidas que ofrecer.
+            <select
+              id="time"
+              name="time"
+              disabled
+              defaultValue=""
+              className={cn('mt-2', fieldCls)}
+            >
+              <option value="">—</option>
+            </select>
+          )}
+          {dayHours ? (
+            <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+              {dayHours.openTime}–{dayHours.closeTime}
+            </p>
+          ) : weekHours ? (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              El club cierra este día.
+            </p>
+          ) : null}
           <FieldErr messages={errors?.time} />
         </div>
         <div>

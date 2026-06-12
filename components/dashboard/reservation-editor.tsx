@@ -18,7 +18,10 @@ import {
   type CoachOption,
   type ReservationDefaults,
 } from '@/components/dashboard/reservation-fields'
-import { type ReservationPaymentStatus } from '@/lib/reservations'
+import {
+  type ReservationPaymentStatus,
+  type WeekHours,
+} from '@/lib/reservations'
 import {
   cancelReservation,
   deleteReservation,
@@ -46,12 +49,15 @@ export function ReservationEditor({
   courts,
   coaches = [],
   classPrices,
+  weekHours,
   day,
 }: {
   reservation: EditableReservation
   courts: Court[]
   coaches?: CoachOption[]
   classPrices?: ClassPrices
+  // Horario del club por día de la semana (restringe la hora a la franja abierta).
+  weekHours?: WeekHours
   day: string
 }) {
   const router = useRouter()
@@ -109,6 +115,7 @@ export function ReservationEditor({
             courts={courts}
             coaches={coaches}
             classPrices={classPrices}
+            weekHours={weekHours}
             defaults={reservation}
             errors={state.fieldErrors}
             payment={payment}

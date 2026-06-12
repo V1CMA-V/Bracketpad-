@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState, useTransition } from 'reac
 import {
   ClipboardCheck,
   Clock,
+  Dices,
   FlagTriangleRight,
   Lock,
   Plus,
@@ -1177,6 +1178,46 @@ function GroupCard({
         ?.registrationId ?? '',
   )
 
+  // Ruleta de empate: `rolling` indica el lado que está sorteando ('up'/'down')
+  // y `rollName` el nombre que se muestra girando. Al terminar fija la elección.
+  const [rolling, setRolling] = useState<'up' | 'down' | null>(null)
+  const [rollName, setRollName] = useState('')
+  const rollTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  useEffect(
+    () => () => {
+      rollTimers.current.forEach(clearTimeout)
+    },
+    [],
+  )
+
+  // Elige un ganador al azar entre los empatados con una animación de «ruleta»
+  // que pasa por los nombres acelerando y frena hasta detenerse en el elegido.
+  const rollRandom = (
+    side: 'up' | 'down',
+    options: { registrationId: string; name: string }[],
+    setChosen: (v: string) => void,
+  ) => {
+    if (rolling || tiePending || options.length < 2) return
+    const finalIdx = Math.floor(Math.random() * options.length)
+    const steps = 16 + Math.floor(Math.random() * 6)
+    setRolling(side)
+    let i = 0
+    const tick = () => {
+      i += 1
+      if (i >= steps) {
+        setRollName(options[finalIdx].name)
+        setChosen(options[finalIdx].registrationId)
+        setRolling(null)
+        return
+      }
+      setRollName(options[i % options.length].name)
+      // Frenado: cada paso tarda un poco más que el anterior.
+      const delay = 45 + Math.pow(i / steps, 2.6) * 340
+      rollTimers.current.push(setTimeout(tick, delay))
+    }
+    tick()
+  }
+
   const matches = [...group.matches].sort(
     (a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0),
   )
@@ -1374,6 +1415,7 @@ function GroupCard({
   // Guarda la decisión del empate (quién sube / quién baja).
   const tieSaveDisabled =
     tiePending ||
+    rolling !== null ||
     (upTie && !chosenUp) ||
     (downTie && !chosenDown) ||
     (upTie && downTie && chosenUp === chosenDown)
@@ -1651,8 +1693,8 @@ function GroupCard({
           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
             Hay empate en{' '}
             {rankingBy === 'games' ? 'la diferencia de juegos' : 'los sets ganados'}
-            . El sistema no decide el ascenso/descenso: elígelo tú (por tus
-            propios medios) para poder cerrar la jornada.
+            . El sistema no decide el ascenso/descenso: elígelo tú o deja que el
+            dado lo sortee al azar para poder cerrar la jornada.
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-3">
             {upTie && (
@@ -1660,19 +1702,40 @@ function GroupCard({
                 <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                   Sube
                 </span>
-                <select
-                  value={chosenUp}
-                  onChange={(e) => setChosenUp(e.target.value)}
-                  disabled={tiePending}
-                  className={cn(fieldCls, 'w-44')}
-                >
-                  <option value="">Elegir…</option>
-                  {upOptions.map((o) => (
-                    <option key={o.registrationId} value={o.registrationId}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={chosenUp}
+                    onChange={(e) => setChosenUp(e.target.value)}
+                    disabled={tiePending || rolling !== null}
+                    className={cn(fieldCls, 'w-44')}
+                  >
+                    <option value="">Elegir…</option>
+                    {upOptions.map((o) => (
+                      <option key={o.registrationId} value={o.registrationId}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Elegir al azar"
+                    onClick={() => rollRandom('up', upOptions, setChosenUp)}
+                    disabled={tiePending || rolling !== null}
+                    className="shrink-0 rounded-md"
+                  >
+                    <Dices
+                      className={cn('size-4', rolling === 'up' && 'animate-spin')}
+                      strokeWidth={2}
+                    />
+                  </Button>
+                </div>
+                {rolling === 'up' && (
+                  <span className="animate-pulse font-mono text-xs font-medium text-ochre">
+                    {rollName}
+                  </span>
+                )}
               </label>
             )}
             {downTie && (
@@ -1680,19 +1743,43 @@ function GroupCard({
                 <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                   Baja
                 </span>
-                <select
-                  value={chosenDown}
-                  onChange={(e) => setChosenDown(e.target.value)}
-                  disabled={tiePending}
-                  className={cn(fieldCls, 'w-44')}
-                >
-                  <option value="">Elegir…</option>
-                  {downOptions.map((o) => (
-                    <option key={o.registrationId} value={o.registrationId}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={chosenDown}
+                    onChange={(e) => setChosenDown(e.target.value)}
+                    disabled={tiePending || rolling !== null}
+                    className={cn(fieldCls, 'w-44')}
+                  >
+                    <option value="">Elegir…</option>
+                    {downOptions.map((o) => (
+                      <option key={o.registrationId} value={o.registrationId}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Elegir al azar"
+                    onClick={() => rollRandom('down', downOptions, setChosenDown)}
+                    disabled={tiePending || rolling !== null}
+                    className="shrink-0 rounded-md"
+                  >
+                    <Dices
+                      className={cn(
+                        'size-4',
+                        rolling === 'down' && 'animate-spin',
+                      )}
+                      strokeWidth={2}
+                    />
+                  </Button>
+                </div>
+                {rolling === 'down' && (
+                  <span className="animate-pulse font-mono text-xs font-medium text-ochre">
+                    {rollName}
+                  </span>
+                )}
               </label>
             )}
             <Button

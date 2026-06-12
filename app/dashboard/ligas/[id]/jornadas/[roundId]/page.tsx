@@ -268,6 +268,7 @@ export default async function JornadaDetailPage({
               matches={matchItems}
               rosters={rosters}
               rankingBy={rankingBy}
+              noShowGamesAgainst={noShowGamesAgainst}
               defaultDateTime={defaultDateTime}
             />
           ) : (

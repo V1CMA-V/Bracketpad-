@@ -1,10 +1,19 @@
 'use client'
 
 import { useActionState, useEffect, useRef, useState, useTransition } from 'react'
-import { Clock, Plus, Save, Search, Trash2, Wand2, X } from 'lucide-react'
+import {
+  ClipboardCheck,
+  Clock,
+  Plus,
+  Save,
+  Search,
+  Trash2,
+  Wand2,
+  X,
+} from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { MAX_GAMES_PER_SET } from '@/lib/league-rules'
+import { MAX_GAMES_PER_SET, NO_SHOW_SETS } from '@/lib/league-rules'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DurationSelect } from '@/components/dashboard/duration-select'
@@ -14,10 +23,12 @@ import {
   deleteGroup,
   generatePairGroupsFromStandings,
   setGroupStatus,
+  setSlotAttendance,
   updatePairGroupDetails,
   type MatchState,
 } from '@/app/dashboard/ligas/[id]/jornadas/[roundId]/actions'
 import type {
+  Attendance,
   GroupRoster,
   MatchItem,
   SidePlayer,
@@ -454,25 +465,134 @@ function PairGroupDetailsForm({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Pase de lista de una pareja                                                */
+/* -------------------------------------------------------------------------- */
+
+/** Una fila del pase de lista de parejas: marca asistencia y suplente. */
+function PairAttendanceRow({
+  roundId,
+  member,
+  label,
+}: {
+  roundId: string
+  member: GroupRoster['members'][number]
+  /** Etiqueta de la pareja (ambos jugadores). */
+  label: string
+}) {
+  const [pending, start] = useTransition()
+  const [sub, setSub] = useState(member.substituteName ?? '')
+
+  const apply = (attendance: Attendance) =>
+    start(() => {
+      void setSlotAttendance(
+        roundId,
+        member.registrationId,
+        attendance,
+        attendance === 'absent' ? sub : null,
+      )
+    })
+
+  const isAbsent = member.attendance === 'absent'
+  const isPresent = member.attendance === 'present'
+
+  return (
+    <div
+      className={cn(
+        'rounded-md border border-border bg-background/40 px-3 py-2',
+        pending && 'opacity-50',
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={cn(
+            'flex-1 truncate text-sm text-foreground',
+            isAbsent && 'text-muted-foreground line-through',
+          )}
+        >
+          {label}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => apply('present')}
+            className={cn(
+              'h-7 rounded-md border px-2 text-[11px] uppercase tracking-wider transition-colors disabled:opacity-50',
+              isPresent
+                ? 'border-forest/40 bg-forest/10 text-forest'
+                : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            Presente
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => apply('absent')}
+            className={cn(
+              'h-7 rounded-md border px-2 text-[11px] uppercase tracking-wider transition-colors disabled:opacity-50',
+              isAbsent
+                ? 'border-terracotta/40 bg-terracotta/10 text-terracotta'
+                : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            No llegó
+          </button>
+        </div>
+      </div>
+      {isAbsent && (
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            value={sub}
+            onChange={(e) => setSub(e.target.value)}
+            placeholder="Pareja suplente…"
+            className={cn(fieldCls, 'h-8 flex-1')}
+          />
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => apply('absent')}
+            title="Guardar suplente"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            <Save className="size-4" strokeWidth={2} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Tarjeta de grupo                                                           */
 /* -------------------------------------------------------------------------- */
 
 function PairGroupCard({
   roundId,
   group,
+  roster,
   courts,
   rankingBy,
+  maxGroupNumber,
+  noShowGamesAgainst,
+  teamLabelByReg,
   highlight,
 }: {
   roundId: string
   group: RoundGroup
+  roster?: GroupRoster
   courts: Option[]
   rankingBy: 'sets' | 'games' | 'both'
+  maxGroupNumber: number
+  /** Juegos en contra que el club asigna a la pareja que no se presenta. */
+  noShowGamesAgainst: number
+  /** Etiqueta de cada pareja por registrationId (para el pase de lista). */
+  teamLabelByReg: Map<string, string>
   highlight?: string
 }) {
   const boundAction = captureGroupResults.bind(null, roundId)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
-  const [editing, setEditing] = useState(false)
+  const [panel, setPanel] = useState<'none' | 'edit' | 'checkin'>('none')
   const [removing, startRemove] = useTransition()
   const [statusPending, startStatus] = useTransition()
 
@@ -481,12 +601,30 @@ function PairGroupCard({
   )
 
   // Las 4 parejas del grupo, derivadas de los lados de los partidos.
-  const teams = new Map<string, { key: string; label: string }>()
+  const teams = new Map<
+    string,
+    { key: string; label: string; playerIds: string[] }
+  >()
   for (const m of matches) {
     for (const side of [m.sideA, m.sideB]) {
       const key = teamKey(side)
-      if (key && !teams.has(key)) teams.set(key, { key, label: sideLabel(side) })
+      if (key && !teams.has(key))
+        teams.set(key, {
+          key,
+          label: sideLabel(side),
+          playerIds: side.map((p) => p.id),
+        })
     }
+  }
+
+  // Pase de lista de la pareja por id de jugador (cualquiera de los dos resuelve
+  // el slot, que es por inscripción/pareja).
+  const memberByPlayer = new Map(
+    (roster?.members ?? []).map((m) => [m.playerId, m] as const),
+  )
+  const absentMemberOf = (playerIds: string[]) => {
+    const mem = playerIds.map((id) => memberByPlayer.get(id)).find((m) => !!m)
+    return mem?.attendance === 'absent' ? mem : null
   }
 
   const groupStatus = (() => {
@@ -498,10 +636,14 @@ function PairGroupCard({
     return 'scheduled'
   })()
 
-  // Estadísticas por pareja a partir de los resultados (un set por partido).
+  // Estadísticas por pareja a partir de los resultados (un set por partido). La
+  // pareja que no se presenta pierde la jornada: forfeit de sus partidos y
+  // último puesto, igual que en el formato individual.
   type Stat = {
     key: string
     label: string
+    note: string | null
+    isAbsent: boolean
     wins: number
     losses: number
     setsWon: number
@@ -510,22 +652,43 @@ function PairGroupCard({
   }
   const stats = new Map<string, Stat>()
   for (const [key, t] of teams) {
-    stats.set(key, {
-      key,
-      label: t.label,
-      wins: 0,
-      losses: 0,
-      setsWon: 0,
-      gamesFor: 0,
-      gamesAgainst: 0,
-    })
+    const absentMem = absentMemberOf(t.playerIds)
+    if (absentMem) {
+      stats.set(key, {
+        key,
+        label: t.label,
+        note: absentMem.substituteName
+          ? `No llegó · ${absentMem.substituteName}`
+          : 'No llegó',
+        isAbsent: true,
+        wins: 0,
+        losses: NO_SHOW_SETS,
+        setsWon: 0,
+        gamesFor: 0,
+        gamesAgainst: noShowGamesAgainst,
+      })
+    } else {
+      stats.set(key, {
+        key,
+        label: t.label,
+        note: null,
+        isAbsent: false,
+        wins: 0,
+        losses: 0,
+        setsWon: 0,
+        gamesFor: 0,
+        gamesAgainst: 0,
+      })
+    }
   }
   for (const m of matches) {
     const set = m.sets[0]
     if (!set) continue
     const a = stats.get(teamKey(m.sideA))
     const b = stats.get(teamKey(m.sideB))
-    if (a) {
+    // Una pareja ausente conserva su forfeit: no se le suman los resultados que
+    // jugó su pareja suplente.
+    if (a && !a.isAbsent) {
       a.gamesFor += set.gamesA
       a.gamesAgainst += set.gamesB
       if (m.winnerSide === 'A') {
@@ -533,7 +696,7 @@ function PairGroupCard({
         a.setsWon += 1
       } else if (m.winnerSide) a.losses += 1
     }
-    if (b) {
+    if (b && !b.isAbsent) {
       b.gamesFor += set.gamesB
       b.gamesAgainst += set.gamesA
       if (m.winnerSide === 'B') {
@@ -544,12 +707,38 @@ function PairGroupCard({
   }
   const scoreOf = (s: Stat) =>
     rankingBy === 'games' ? s.gamesFor - s.gamesAgainst : s.setsWon
-  const rankedStats = [...stats.values()].sort(
-    (a, b) =>
-      scoreOf(b) - scoreOf(a) ||
-      b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
-      a.label.localeCompare(b.label),
-  )
+  const allStats = [...stats.values()]
+  const hasAbsent = allStats.some((s) => s.isAbsent)
+  // Orden: primero las parejas presentes por puntuación; las ausentes al final.
+  const rankedStats = [
+    ...allStats
+      .filter((s) => !s.isAbsent)
+      .sort(
+        (a, b) =>
+          scoreOf(b) - scoreOf(a) ||
+          b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
+          a.label.localeCompare(b.label),
+      ),
+    ...allStats.filter((s) => s.isAbsent),
+  ]
+  const presentCount = allStats.filter((s) => !s.isAbsent).length
+
+  // Ascenso/descenso de parejas: el grupo más alto no sube, el más bajo no baja.
+  // La mejor pareja del grupo sube; la peor baja, salvo que haya una ausente, que
+  // ocupa el descenso. Empates resueltos por el orden de la tabla.
+  const isHighest = group.groupNumber === 1
+  const isLowest = group.groupNumber >= maxGroupNumber
+  const movementOf = (s: Stat, i: number): 'up' | 'down' | 'stay' => {
+    if (s.isAbsent) return isLowest ? 'stay' : 'down'
+    if (i === 0 && !isHighest && presentCount > 0) return 'up'
+    if (i === presentCount - 1 && !isLowest && !hasAbsent) return 'down'
+    return 'stay'
+  }
+  const movementLabel: Record<string, string> = {
+    up: 'Sube',
+    down: 'Baja',
+    stay: 'Mantiene',
+  }
 
   const isHit = (name: string) =>
     !!highlight && normalizeText(name).includes(highlight)
@@ -576,14 +765,25 @@ function PairGroupCard({
             Grupo {group.groupNumber}
           </h3>
           <p className="mt-1 truncate text-sm text-muted-foreground">
-            {[...teams.values()].map((t, i) => (
-              <span key={t.key}>
-                {i > 0 && ' · '}
-                <span className={cn(isHit(t.label) && 'font-semibold text-primary')}>
-                  {t.label}
+            {[...teams.values()].map((t, i) => {
+              const absentMem = absentMemberOf(t.playerIds)
+              return (
+                <span key={t.key}>
+                  {i > 0 && ' · '}
+                  <span
+                    className={cn(
+                      isHit(t.label) && 'font-semibold text-primary',
+                      absentMem && 'line-through',
+                    )}
+                  >
+                    {t.label}
+                  </span>
+                  {absentMem?.substituteName && (
+                    <span className="no-underline"> → {absentMem.substituteName}</span>
+                  )}
                 </span>
-              </span>
-            ))}
+              )
+            })}
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             <span>{statusLabels[groupStatus] ?? groupStatus}</span>
@@ -623,13 +823,28 @@ function PairGroupCard({
               <option value="finished">Finalizado</option>
             )}
           </select>
+          {roster?.members.length ? (
+            <button
+              type="button"
+              onClick={() =>
+                setPanel((p) => (p === 'checkin' ? 'none' : 'checkin'))
+              }
+              title="Pase de lista del grupo"
+              className={cn(
+                'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                panel === 'checkin' && 'bg-muted text-foreground',
+              )}
+            >
+              <ClipboardCheck className="size-4" strokeWidth={2} />
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => setPanel((p) => (p === 'edit' ? 'none' : 'edit'))}
             title="Editar horario y canchas del grupo"
             className={cn(
               'flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-              editing && 'bg-muted text-foreground',
+              panel === 'edit' && 'bg-muted text-foreground',
             )}
           >
             <Clock className="size-4" strokeWidth={2} />
@@ -654,14 +869,37 @@ function PairGroupCard({
         </div>
       </div>
 
-      {editing && (
+      {panel === 'edit' && (
         <PairGroupDetailsForm
           roundId={roundId}
           group={group}
           courts={courts}
-          onDone={() => setEditing(false)}
+          onDone={() => setPanel('none')}
         />
       )}
+
+      {panel === 'checkin' && roster?.members.length ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Pase de lista
+          </p>
+          <div className="space-y-2">
+            {roster.members.map((mem) => (
+              <PairAttendanceRow
+                key={mem.registrationId}
+                roundId={roundId}
+                member={mem}
+                label={teamLabelByReg.get(mem.registrationId) ?? mem.fullName}
+              />
+            ))}
+          </div>
+          <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            «No llegó» hace que la pareja pierda la jornada (último del grupo,
+            desciende). La pareja suplente cubre los partidos, pero sus puntos no
+            cuentan.
+          </p>
+        </div>
+      ) : null}
 
       {groupStatus === 'finished' && (
         <div className="mt-4 overflow-hidden rounded-lg border border-border">
@@ -673,11 +911,13 @@ function PairGroupCard({
                 <th className="px-3 py-2 text-center font-normal">G-P</th>
                 <th className="px-3 py-2 text-center font-normal">Juegos</th>
                 <th className="px-3 py-2 text-center font-normal">Dif.</th>
+                <th className="px-3 py-2 text-right font-normal">Mov.</th>
               </tr>
             </thead>
             <tbody>
               {rankedStats.map((s, i) => {
                 const diff = s.gamesFor - s.gamesAgainst
+                const mv = movementOf(s, i)
                 return (
                   <tr
                     key={s.key}
@@ -693,12 +933,18 @@ function PairGroupCard({
                       <span
                         className={cn(
                           'text-foreground',
-                          i === 0 && 'font-medium',
+                          s.isAbsent && 'text-muted-foreground line-through',
+                          i === 0 && !s.isAbsent && 'font-medium',
                           isHit(s.label) && 'font-semibold text-primary',
                         )}
                       >
                         {s.label}
                       </span>
+                      {s.note && (
+                        <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-terracotta">
+                          {s.note}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-center tabular-nums">
                       {s.wins}–{s.losses}
@@ -717,6 +963,20 @@ function PairGroupCard({
                       )}
                     >
                       {diff > 0 ? `+${diff}` : diff}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span
+                        className={cn(
+                          'font-mono text-[10px] uppercase tracking-wider',
+                          mv === 'up'
+                            ? 'text-forest'
+                            : mv === 'down'
+                              ? 'text-terracotta'
+                              : 'text-muted-foreground',
+                        )}
+                      >
+                        {movementLabel[mv]}
+                      </span>
                     </td>
                   </tr>
                 )
@@ -821,6 +1081,7 @@ export function PairRoundMatches({
   matches,
   rosters,
   rankingBy,
+  noShowGamesAgainst,
   defaultDateTime,
 }: {
   roundId: string
@@ -830,6 +1091,8 @@ export function PairRoundMatches({
   matches: MatchItem[]
   rosters: GroupRoster[]
   rankingBy: 'sets' | 'games' | 'both'
+  /** Juegos en contra que el club asigna a la pareja que no se presenta. */
+  noShowGamesAgainst: number
   defaultDateTime?: string
 }) {
   const [query, setQuery] = useState('')
@@ -839,6 +1102,8 @@ export function PairRoundMatches({
     rosters.flatMap((r) => r.members.map((m) => m.registrationId)),
   )
   const availableTeams = teams.filter((t) => !usedRegs.has(t.id))
+  const rosterByGroup = new Map(rosters.map((r) => [r.groupNumber, r]))
+  const teamLabelByReg = new Map(teams.map((t) => [t.id, t.name]))
 
   const byGroup = new Map<number, MatchItem[]>()
   for (const m of matches) {
@@ -847,6 +1112,7 @@ export function PairRoundMatches({
     list.push(m)
     byGroup.set(m.groupNumber, list)
   }
+  const maxGroupNumber = byGroup.size ? Math.max(...byGroup.keys()) : 0
   const groups: RoundGroup[] = [...byGroup.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([groupNumber, ms]) => {
@@ -948,8 +1214,12 @@ export function PairRoundMatches({
                 key={g.groupNumber}
                 roundId={roundId}
                 group={g}
+                roster={rosterByGroup.get(g.groupNumber)}
                 courts={courts}
                 rankingBy={rankingBy}
+                maxGroupNumber={maxGroupNumber}
+                noShowGamesAgainst={noShowGamesAgainst}
+                teamLabelByReg={teamLabelByReg}
                 highlight={q}
               />
             ))}

@@ -368,18 +368,27 @@ export default async function DashboardResumenPage() {
       .filter((m) => m.status === 'in_progress' && m.courtId)
       .map((m) => m.courtId),
   )
-  // Una reserva en curso ahora mismo también ocupa la pista.
+  // Una reserva en curso ahora mismo también ocupa la pista (y cuenta como
+  // actividad «en juego» junto a los partidos).
   const nowMs = now.getTime()
+  let liveReservationsCount = 0
   for (const r of dayReservations) {
     const s = r.startAt.getTime()
     if (nowMs >= s && nowMs < s + r.durationMinutes * 60_000) {
       occupiedCourtIds.add(r.courtId)
+      liveReservationsCount += 1
     }
   }
   const freeCourts = Math.max(0, courts.length - occupiedCourtIds.size)
+  // «En juego» = partidos en curso + reservas en curso (todo lo que ocupa pista).
+  const liveActivity = liveCount + liveReservationsCount
 
   const stats = [
-    { label: 'En juego', value: String(liveCount), sub: 'Partidos ahora' },
+    {
+      label: 'En juego',
+      value: String(liveActivity),
+      sub: 'En las pistas',
+    },
     { label: 'Jugadores', value: String(playerCount), sub: 'En el club' },
     {
       label: 'Ingresos',
@@ -454,9 +463,22 @@ export default async function DashboardResumenPage() {
       }`
     : (liveMatch?.bracketRound ?? 'En curso')
   const lastSet = (liveMatch?.sets.length ?? 1) - 1
-  const remainingToday = dayMatches.filter(
+  // Actividad restante de hoy = partidos sin terminar + reservas (juego libre)
+  // aún vigentes, para que el resumen refleje tanto ligas/torneos como las
+  // reservas privadas de pista.
+  const remainingMatches = dayMatches.filter(
     (m) => m.status === 'scheduled' || m.status === 'in_progress',
   ).length
+  const remainingReservations = dayReservations.filter(
+    (r) => r.startAt.getTime() + r.durationMinutes * 60_000 > nowMs,
+  ).length
+  const remainingToday = remainingMatches + remainingReservations
+  // Reserva en curso ahora mismo (si no hay un partido en vivo que mostrar).
+  const liveReservation = dayReservations.find((r) => {
+    const s = r.startAt.getTime()
+    return nowMs >= s && nowMs < s + r.durationMinutes * 60_000
+  })
+  const courtNameById = new Map(courts.map((c) => [c.id, c.name]))
 
   /* ---- Programación de pistas (hoy) ---- */
   type ScheduleSlot = {
@@ -539,6 +561,19 @@ export default async function DashboardResumenPage() {
     hour < 12 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches'
   const firstName = (session?.user?.name ?? club.name).split(/\s+/)[0]
 
+  // Resumen de actividad de hoy: partidos y reservas (juego libre) por separado.
+  const todayActivity: string[] = []
+  if (dayMatches.length > 0) {
+    todayActivity.push(
+      `${dayMatches.length} ${dayMatches.length === 1 ? 'partido' : 'partidos'}`,
+    )
+  }
+  if (dayReservations.length > 0) {
+    todayActivity.push(
+      `${dayReservations.length} ${dayReservations.length === 1 ? 'reserva' : 'reservas'}`,
+    )
+  }
+
   return (
     <>
       <DashboardTopbar>
@@ -565,17 +600,16 @@ export default async function DashboardResumenPage() {
               {greeting}, <em className="italic">{firstName}.</em>
             </h1>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-              {dayMatches.length > 0 ? (
+              {todayActivity.length > 0 ? (
                 <>
                   Hoy hay{' '}
                   <span className="text-foreground">
-                    {dayMatches.length}{' '}
-                    {dayMatches.length === 1 ? 'partido' : 'partidos'}
+                    {todayActivity.join(' y ')}
                   </span>{' '}
                   en {courts.length} {courts.length === 1 ? 'pista' : 'pistas'}.
                 </>
               ) : (
-                <>No hay partidos programados para hoy en {courts.length}{' '}
+                <>No hay partidos ni reservas para hoy en {courts.length}{' '}
                   {courts.length === 1 ? 'pista' : 'pistas'}.</>
               )}{' '}
               {pendingActions.length > 0
@@ -738,16 +772,42 @@ export default async function DashboardResumenPage() {
                   </span>
                 </div>
               </div>
+            ) : liveReservation ? (
+              <div className="rounded-xl border border-border bg-card p-6">
+                <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-forest">
+                  <span className="inline-block size-1.5 rounded-full bg-forest" />
+                  Reserva en curso
+                  {courtNameById.get(liveReservation.courtId)
+                    ? ` · ${courtNameById.get(liveReservation.courtId)}`
+                    : ''}
+                </div>
+                <p className="mt-4 truncate text-sm leading-relaxed text-foreground">
+                  {liveReservation.holderName}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Juego libre en curso.
+                  {remainingToday > 0
+                    ? ` Quedan ${remainingToday} entre partidos y reservas hoy.`
+                    : ''}
+                </p>
+                <Link
+                  href="/dashboard/programacion"
+                  className="mt-4 inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-foreground hover:underline"
+                >
+                  Ver programación
+                  <ChevronRight className="size-3.5" strokeWidth={1.5} />
+                </Link>
+              </div>
             ) : (
               <div className="rounded-xl border border-border bg-card p-6">
                 <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                   <span className="inline-block size-1.5 rounded-full bg-muted-foreground/50" />
-                  Sin partidos en vivo
+                  Sin actividad en vivo
                 </div>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
                   {remainingToday > 0
-                    ? `Quedan ${remainingToday} ${remainingToday === 1 ? 'partido' : 'partidos'} por jugar hoy.`
-                    : 'No hay partidos en juego en este momento.'}
+                    ? `Quedan ${remainingToday} entre partidos y reservas hoy.`
+                    : 'No hay partidos ni reservas en juego en este momento.'}
                 </p>
                 <Link
                   href="/dashboard/programacion"

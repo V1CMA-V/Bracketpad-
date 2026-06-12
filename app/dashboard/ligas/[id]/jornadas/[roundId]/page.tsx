@@ -16,10 +16,14 @@ import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
 import { teamLabel } from '@/lib/leagues'
 
+// Formatea la fecha de la jornada (`scheduledDate`, `@db.Date`): se guarda como
+// medianoche UTC, así que se formatea en UTC para no mostrar un día antes en
+// zonas horarias con desfase negativo.
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
   month: 'long',
   year: 'numeric',
+  timeZone: 'UTC',
 })
 
 const dateTimeFmt = new Intl.DateTimeFormat('es', {

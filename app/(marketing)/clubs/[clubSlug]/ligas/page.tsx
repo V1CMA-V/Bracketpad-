@@ -5,10 +5,13 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 
+// startDate/endDate son `@db.Date` (medianoche UTC): se formatean en UTC para
+// no mostrar un día antes en zonas horarias con desfase negativo.
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
   month: 'short',
   year: 'numeric',
+  timeZone: 'UTC',
 })
 
 function formatRange(start: Date | null, end: Date | null): string {

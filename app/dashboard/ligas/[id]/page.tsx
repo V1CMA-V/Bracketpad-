@@ -19,16 +19,27 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 
+// Para timestamps reales (p. ej. `createdAt`): se formatea en hora local.
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
   month: 'short',
   year: 'numeric',
 })
 
+// Para fechas de calendario `@db.Date` (startDate, endDate, scheduledDate): se
+// guardan como medianoche UTC, así que deben formatearse en UTC para no
+// mostrarse un día antes en zonas horarias con desfase negativo.
+const dayFmt = new Intl.DateTimeFormat('es', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+})
+
 function formatRange(start: Date | null, end: Date | null): string {
-  if (start && end) return `${dateFmt.format(start)} → ${dateFmt.format(end)}`
-  if (start) return `Desde ${dateFmt.format(start)}`
-  if (end) return `Hasta ${dateFmt.format(end)}`
+  if (start && end) return `${dayFmt.format(start)} → ${dayFmt.format(end)}`
+  if (start) return `Desde ${dayFmt.format(start)}`
+  if (end) return `Hasta ${dayFmt.format(end)}`
   return 'Sin fechas'
 }
 
@@ -418,7 +429,7 @@ export default async function LigaDetailPage({
                 roundNumber: round.roundNumber,
                 name: round.name,
                 dateLabel: round.scheduledDate
-                  ? dateFmt.format(round.scheduledDate)
+                  ? dayFmt.format(round.scheduledDate)
                   : 'Sin fecha',
                 matchCount: round._count.matches,
                 status: round.status,
@@ -515,12 +526,12 @@ export default async function LigaDetailPage({
                 <DataRow
                   label="Inicio"
                   value={
-                    league.startDate ? dateFmt.format(league.startDate) : '—'
+                    league.startDate ? dayFmt.format(league.startDate) : '—'
                   }
                 />
                 <DataRow
                   label="Fin"
-                  value={league.endDate ? dateFmt.format(league.endDate) : '—'}
+                  value={league.endDate ? dayFmt.format(league.endDate) : '—'}
                 />
                 {league.totalRounds != null && (
                   <DataRow

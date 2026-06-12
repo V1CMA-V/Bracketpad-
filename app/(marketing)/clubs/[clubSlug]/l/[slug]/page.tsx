@@ -25,12 +25,16 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
+// Fechas de calendario `@db.Date` (startDate/endDate): guardadas como medianoche
+// UTC, se formatean en UTC para no mostrar un día antes en zonas con desfase.
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
   month: 'short',
   year: 'numeric',
+  timeZone: 'UTC',
 })
 
+// Timestamp real de un partido (`scheduledAt`): se formatea en hora local.
 const dateTimeFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
   month: 'short',
@@ -38,10 +42,12 @@ const dateTimeFmt = new Intl.DateTimeFormat('es', {
   minute: '2-digit',
 })
 
+// Fecha de la jornada (`scheduledDate`, `@db.Date`): también en UTC.
 const dayFmt = new Intl.DateTimeFormat('es', {
   weekday: 'short',
   day: '2-digit',
   month: 'short',
+  timeZone: 'UTC',
 })
 
 function formatRange(start: Date | null, end: Date | null): string {

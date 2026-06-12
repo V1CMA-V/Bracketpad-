@@ -16,16 +16,26 @@ export const metadata: Metadata = {
   title: 'Ligas · Bandeja',
 }
 
+// Timestamp real (`createdAt`): hora local.
 const dateFmt = new Intl.DateTimeFormat('es', {
   day: '2-digit',
   month: 'short',
   year: 'numeric',
 })
 
+// Fechas de calendario `@db.Date` (startDate/endDate): guardadas como medianoche
+// UTC, se formatean en UTC para no mostrar un día antes en zonas con desfase.
+const dayFmt = new Intl.DateTimeFormat('es', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+})
+
 function formatRange(start: Date | null, end: Date | null): string {
-  if (start && end) return `${dateFmt.format(start)} → ${dateFmt.format(end)}`
-  if (start) return `Desde ${dateFmt.format(start)}`
-  if (end) return `Hasta ${dateFmt.format(end)}`
+  if (start && end) return `${dayFmt.format(start)} → ${dayFmt.format(end)}`
+  if (start) return `Desde ${dayFmt.format(start)}`
+  if (end) return `Hasta ${dayFmt.format(end)}`
   return 'Sin fechas'
 }
 

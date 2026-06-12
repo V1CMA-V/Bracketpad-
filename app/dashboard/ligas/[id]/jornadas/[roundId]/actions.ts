@@ -2,6 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { z } from 'zod'
 
 import { Prisma } from '@/generated/client'
@@ -248,6 +249,31 @@ function rotatingPairings(
   ]
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Calendario recurrente: próxima fecha de juego de la liga                   */
+/* -------------------------------------------------------------------------- */
+
+const HHMM_RE = /^\d{1,2}:\d{2}$/
+
+/**
+ * Primera fecha de juego de la liga posterior a `base` (exclusiva): el día más
+ * próximo cuyo día de la semana (0=domingo … 6=sábado, igual que `playWeekdays`)
+ * esté en el calendario. Trabaja en UTC, como el resto de fechas `@db.Date`.
+ * Devuelve null si la liga no tiene días configurados.
+ */
+function nextLeaguePlayDate(base: Date, weekdays: number[]): Date | null {
+  if (weekdays.length === 0) return null
+  const days = new Set(weekdays)
+  const d = new Date(
+    Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()),
+  )
+  for (let i = 0; i < 7; i++) {
+    d.setUTCDate(d.getUTCDate() + 1)
+    if (days.has(d.getUTCDay())) return d
+  }
+  return null
+}
+
 /**
  * Persiste una lista de grupos ya ordenados (grupo 1 = más alto; dentro de cada
  * grupo los jugadores en orden de siembra) creando los 3 partidos rotativos y
@@ -265,6 +291,10 @@ async function persistGroups(
   leagueId: string,
   roundId: string,
   groups: { registrationId: string; playerId: string }[][],
+  // Fecha/hora inicial para todos los partidos de la jornada. Se usa al cerrar
+  // una jornada para prefijar el día de juego siguiente (el organizador luego
+  // ajusta horarios y canchas). Null = sin programar.
+  scheduledAt?: Date | null,
 ) {
   const matchesData: Prisma.MatchCreateManyInput[] = []
   const sidesData: Prisma.MatchSideCreateManyInput[] = []
@@ -293,6 +323,7 @@ async function persistGroups(
         leagueRoundId: roundId,
         groupNumber,
         intraGroupOrder: pi + 1,
+        scheduledAt: scheduledAt ?? null,
         status: 'scheduled',
       })
       for (const { side, ids } of [
@@ -1632,9 +1663,12 @@ export async function closeRoundAndAdvance(
       id: true,
       leagueId: true,
       roundNumber: true,
+      scheduledDate: true,
       league: {
         select: {
           playKind: true,
+          playWeekdays: true,
+          playTimes: true,
           scoringConfig: { select: { rankingBy: true } },
         },
       },
@@ -1920,25 +1954,69 @@ export async function closeRoundAndAdvance(
     }),
   ])
 
+  // Calendario de la jornada siguiente: usa los días de juego de la liga para
+  // fijar la fecha del próximo día de juego (a partir de la fecha de esta
+  // jornada o, si no tiene, de hoy). Esa fecha se copia a todos los partidos con
+  // la primera hora configurada como valor inicial; el organizador luego ajusta
+  // horarios y canchas. Sin días de juego configurados, la jornada queda sin
+  // fecha como antes.
+  // Base del cálculo: la más reciente entre la fecha de esta jornada y hoy, para
+  // no programar la siguiente en el pasado si la jornada se cerró con retraso.
+  const now = new Date()
+  const base =
+    round.scheduledDate && round.scheduledDate > now ? round.scheduledDate : now
+  const nextPlayDate = nextLeaguePlayDate(base, round.league.playWeekdays)
+  const nextYmd = nextPlayDate?.toISOString().slice(0, 10) ?? null
+  const firstTime =
+    round.league.playTimes.find((t) => HHMM_RE.test(t)) ?? '12:00'
+  // scheduledDate (@db.Date) se interpreta en UTC en toda la app.
+  const nextScheduledDate = nextYmd
+    ? new Date(`${nextYmd}T00:00:00.000Z`)
+    : null
+  // scheduledAt (timestamp) se construye en hora del servidor, como el resto de
+  // horarios de partido, para que el valor haga ida y vuelta sin desfase.
+  const nextScheduledAt = nextYmd
+    ? new Date(`${nextYmd}T${firstTime}:00`)
+    : null
+
   // 2) Crea o reutiliza (si está vacía) la jornada siguiente y genera sus grupos.
   const nextRoundId =
     existingNext?.id ??
     (
       await prisma.leagueRound.create({
-        data: { leagueId: round.leagueId, roundNumber: nextRoundNumber },
+        data: {
+          leagueId: round.leagueId,
+          roundNumber: nextRoundNumber,
+          scheduledDate: nextScheduledDate,
+        },
         select: { id: true },
       })
     ).id
 
-  // Si reutilizamos una jornada pre-creada, descarta slots viejos.
-  await prisma.leagueGroupSlot.deleteMany({ where: { roundId: nextRoundId } })
+  // Si reutilizamos una jornada pre-creada, descarta slots viejos y refresca su
+  // fecha programada con el próximo día de juego.
+  if (existingNext) {
+    await prisma.leagueRound.update({
+      where: { id: nextRoundId },
+      data: { scheduledDate: nextScheduledDate },
+    })
+    await prisma.leagueGroupSlot.deleteMany({ where: { roundId: nextRoundId } })
+  }
 
-  await persistGroups(club.id, round.leagueId, nextRoundId, nextGroups)
+  await persistGroups(
+    club.id,
+    round.leagueId,
+    nextRoundId,
+    nextGroups,
+    nextScheduledAt,
+  )
 
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${roundId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
-  return { success: true }
+  // Lleva al organizador directamente a la jornada recién generada, ya lista con
+  // sus grupos y fechas. `redirect` lanza, así que esta acción no retorna aquí.
+  redirect(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
 }
 
 /* -------------------------------------------------------------------------- */

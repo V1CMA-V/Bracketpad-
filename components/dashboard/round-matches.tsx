@@ -938,11 +938,6 @@ function CloseRoundButton({
       {state.error && (
         <p className="mt-2 text-xs text-destructive">{state.error}</p>
       )}
-      {state.success && (
-        <p className="mt-2 text-xs text-forest">
-          Jornada cerrada. Se generó la jornada siguiente con los nuevos grupos.
-        </p>
-      )}
     </form>
   )
 }

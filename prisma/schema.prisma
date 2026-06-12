@@ -120,6 +120,7 @@ model Club {
   tournaments Tournament[]
   matches     Match[]
   hours       ClubHours[]
+  reservations CourtReservation[]
 
   @@map("club")
 }
@@ -173,9 +174,52 @@ model Court {
   club         Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
   matches      Match[]
   availability CourtAvailability[]
+  reservations CourtReservation[]
 
   @@index([clubId])
   @@map("court")
+}
+
+// ============ RESERVAS DE PISTA (uso privado del club) ============
+// Apartado de una cancha para juego libre de jugadores (no liga ni torneo). El
+// club bloquea la pista un rato (60/90 min…) a nombre de quien reserva y lleva
+// el control de cobro: precio total, lo abonado y la moneda (el saldo se
+// calcula). No requiere nombrar a todos los participantes, solo al titular.
+model CourtReservation {
+  id              String @id @default(uuid())
+  clubId          String
+  courtId         String
+  holderName      String // a nombre de quién es la reserva (titular)
+  phone           String? // contacto para confirmar o avisar cancelaciones
+  startAt         DateTime // inicio de la reserva
+  durationMinutes Int      @db.SmallInt // cuánto aparta la cancha (60, 90…)
+  status          ReservationStatus @default(confirmed)
+  // Cobro: precio total acordado y lo abonado hasta ahora. `paymentStatus`
+  // distingue pagado / pendiente / abono parcial; el saldo = price − amountPaid.
+  paymentStatus ReservationPaymentStatus @default(pending)
+  price         Decimal?                 @db.Decimal(10, 2)
+  amountPaid    Decimal                  @default(0) @db.Decimal(10, 2)
+  currency      String                   @default("MXN")
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  club  Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  court Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, startAt])
+  @@index([courtId, startAt])
+  @@map("court_reservation")
+}
+
+enum ReservationStatus {
+  confirmed
+  cancelled
+}
+
+enum ReservationPaymentStatus {
+  paid // pagado por completo
+  pending // sin abonar nada todavía
+  partial // abono parcial (queda saldo)
 }
 
 enum CourtSurface {

@@ -11,6 +11,26 @@ export const NO_SHOW_SETS = 3
 export const DEFAULT_MATCH_MINUTES = 90
 
 /**
+ * Desfase (en «ranuras» de duración) de un partido dentro de su grupo de liga.
+ * Las rondas de un grupo comparten la hora del grupo pero son SECUENCIALES y se
+ * escalonan para no solaparse:
+ *  · pairs: 2 canchas, 2 partidos por ronda → ranura = (orden − 1) / 2.
+ *  · individual: 3 sets en la misma cancha → ranura = orden − 1.
+ * El inicio real del partido = hora del grupo + ranura · duración. Sin orden
+ * (torneos u otros contextos) → 0. Lo usan tanto la rejilla de programación como
+ * la validación de solapes para coincidir en el hueco que ocupa cada partido.
+ */
+export function leagueStaggerSlot(
+  playKind: string | null | undefined,
+  intraGroupOrder: number | null | undefined,
+): number {
+  if (intraGroupOrder == null) return 0
+  return playKind === 'pairs'
+    ? Math.floor((intraGroupOrder - 1) / 2)
+    : intraGroupOrder - 1
+}
+
+/**
  * Juegos máximos que puede tener un lado en un set de pádel: el resultado más
  * alto posible es 7-6 (con tie-break a 6-6), así que ningún marcador supera 7.
  * Se usa para acotar los inputs de resultado y validar en el servidor.

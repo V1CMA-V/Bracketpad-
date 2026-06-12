@@ -1,10 +1,19 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
+import { NewReservationButton } from '@/components/dashboard/reservation-form'
+import {
+  ReservationList,
+  type ReservationRow,
+} from '@/components/dashboard/reservation-list'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
-import { DEFAULT_MATCH_MINUTES } from '@/lib/league-rules'
-import { Plus } from 'lucide-react'
+import { DEFAULT_MATCH_MINUTES, leagueStaggerSlot } from '@/lib/league-rules'
+import {
+  formatDuration,
+  paymentStatusLabels,
+  type ReservationPaymentStatus,
+} from '@/lib/reservations'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -21,10 +30,12 @@ export const metadata: Metadata = {
 const DEFAULT_START = 9
 const DEFAULT_END = 21
 
-type SlotState = 'en-juego' | 'proximo' | 'disputado' | 'conflicto'
+type SlotState = 'en-juego' | 'proximo' | 'disputado' | 'conflicto' | 'reserva'
 
 type ScheduledMatch = {
   id: string
+  // 'match' = partido de liga/torneo; 'reserva' = apartado privado de pista.
+  kind: 'match' | 'reserva'
   start: number // hora decimal (16.25 = 16:15)
   duration: number
   // subtitle = competición (liga/categoría); tag = grupo/ronda; label = jugadores.
@@ -70,6 +81,7 @@ const stateFromStatus: Record<string, SlotState> = {
 const legend: { label: string; cls: string }[] = [
   { label: 'En juego', cls: 'bg-forest' },
   { label: 'Próximo', cls: 'bg-ochre' },
+  { label: 'Reserva', cls: 'bg-ink' },
   { label: 'Disputado', cls: 'bg-muted border border-border' },
   { label: 'Conflicto', cls: 'bg-terracotta' },
 ]
@@ -119,7 +131,7 @@ async function getSchedule(clubId: string, day: Date) {
   const dayEnd = new Date(dayStart)
   dayEnd.setDate(dayEnd.getDate() + 1)
 
-  const [courts, matches, dayHours] = await Promise.all([
+  const [courts, matches, reservations, dayHours] = await Promise.all([
     prisma.court.findMany({
       where: { clubId, isActive: true },
       orderBy: { name: 'asc' },
@@ -142,6 +154,11 @@ async function getSchedule(clubId: string, day: Date) {
         },
       },
     }),
+    // Reservas privadas del club (juego libre) que apartan una pista ese día.
+    prisma.courtReservation.findMany({
+      where: { clubId, startAt: { gte: dayStart, lt: dayEnd } },
+      orderBy: { startAt: 'asc' },
+    }),
     // Horario del club para el día de la semana seleccionado (puede no existir
     // si el club cierra ese día).
     prisma.clubHours.findUnique({
@@ -150,7 +167,7 @@ async function getSchedule(clubId: string, day: Date) {
     }),
   ])
 
-  return { courts, matches, dayHours }
+  return { courts, matches, reservations, dayHours }
 }
 
 type RawMatch = Awaited<ReturnType<typeof getSchedule>>['matches'][number]
@@ -207,6 +224,9 @@ function matchContext(m: RawMatch): {
 const toneByState: Record<SlotState, string> = {
   'en-juego': 'bg-forest text-cream',
   proximo: 'bg-ochre text-ink',
+  // Las reservas (uso privado del club) se distinguen en oscuro de los partidos
+  // de competición.
+  reserva: 'bg-ink text-cream',
   disputado: 'border border-border bg-muted/60 text-muted-foreground',
   conflicto: 'bg-terracotta text-cream',
 }
@@ -290,7 +310,10 @@ export default async function ProgramacionPage({
   const todayKey = dateKey(today)
   const isToday = selectedKey === todayKey
 
-  const { courts, matches, dayHours } = await getSchedule(club.id, selected)
+  const { courts, matches, reservations, dayHours } = await getSchedule(
+    club.id,
+    selected,
+  )
 
   // Construye los partidos posicionables (con pista y hora) por pista.
   const matchById = new Map<string, ScheduledMatch>()
@@ -301,14 +324,9 @@ export default async function ProgramacionPage({
     // rondas SECUENCIALES: se escalonan según su orden para no solaparse.
     //  · Parejas: 2 canchas, 2 partidos por ronda → ronda = (orden-1) / 2.
     //  · Individual: 3 sets en la misma cancha → ronda = orden-1.
-    const order = m.intraGroupOrder
-    let slot = 0
-    if (m.leagueId && order != null) {
-      slot =
-        m.league?.playKind === 'pairs'
-          ? Math.floor((order - 1) / 2)
-          : order - 1
-    }
+    const slot = m.leagueId
+      ? leagueStaggerSlot(m.league?.playKind, m.intraGroupOrder)
+      : 0
     // El escalonado y el ancho del bloque usan la duración real del partido
     // (apartado de cancha); si no se fijó, la duración por defecto.
     const durMin = m.durationMinutes ?? DEFAULT_MATCH_MINUTES
@@ -324,6 +342,7 @@ export default async function ProgramacionPage({
     const label = `${sideLabel(m.sides[0])} vs ${sideLabel(m.sides[1])}`
     const sm: ScheduledMatch = {
       id: m.id,
+      kind: 'match',
       start,
       duration: durMin / 60,
       subtitle,
@@ -343,6 +362,40 @@ export default async function ProgramacionPage({
     const list = byCourt.get(m.courtId) ?? []
     list.push(sm)
     byCourt.set(m.courtId, list)
+  }
+
+  // Reservas privadas: cada una bloquea su pista durante su duración. Solo las
+  // vigentes se dibujan en la rejilla (las canceladas viven en la lista). Entran
+  // en la detección de conflictos: una reserva y un partido a la misma hora y
+  // pista chocan igual que dos partidos.
+  for (const r of reservations) {
+    if (r.status === 'cancelled') continue
+    const startH = r.startAt.getHours()
+    const startM = r.startAt.getMinutes()
+    const start = startH + startM / 60
+    const timeLabel = `${String(startH).padStart(2, '0')}:${String(
+      startM,
+    ).padStart(2, '0')}`
+    const sm: ScheduledMatch = {
+      id: r.id,
+      kind: 'reserva',
+      start,
+      duration: r.durationMinutes / 60,
+      subtitle: paymentStatusLabels[r.paymentStatus as ReservationPaymentStatus],
+      tag: 'Reserva',
+      label: r.holderName,
+      timeLabel,
+      state: 'reserva',
+      lane: 0,
+      lanes: 1,
+      title: `Reserva · ${r.holderName}\n${timeLabel} · ${formatDuration(
+        r.durationMinutes,
+      )}`,
+    }
+    matchById.set(r.id, sm)
+    const list = byCourt.get(r.courtId) ?? []
+    list.push(sm)
+    byCourt.set(r.courtId, list)
   }
 
   // Doble reserva: dos o más partidos en la MISMA pista a la MISMA hora de
@@ -441,6 +494,30 @@ export default async function ProgramacionPage({
   const showNow = isToday && nowFraction >= 0 && nowFraction <= 1
   const nowLeft = `calc(184px + (100% - 184px) * ${nowFraction})`
 
+  // Filas para la lista «Reservas del día» (incluye las canceladas). Los
+  // importes Decimal de Prisma se convierten a número para el componente cliente.
+  const reservationRows: ReservationRow[] = reservations.map((r) => {
+    const startH = r.startAt.getHours()
+    const startM = r.startAt.getMinutes()
+    return {
+      id: r.id,
+      courtName: courtNameById.get(r.courtId) ?? 'Pista',
+      holderName: r.holderName,
+      phone: r.phone,
+      timeLabel: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
+      durationLabel: formatDuration(r.durationMinutes),
+      paymentStatus: r.paymentStatus as ReservationPaymentStatus,
+      price: r.price ? Number(r.price) : null,
+      amountPaid: Number(r.amountPaid),
+      currency: r.currency,
+      cancelled: r.status === 'cancelled',
+      notes: r.notes,
+    }
+  })
+
+  // Pistas (id + nombre) para el selector del formulario de reserva.
+  const courtOptions = courts.map((c) => ({ id: c.id, name: c.name }))
+
   // Plantilla de columnas: etiqueta de pista + pista temporal (1fr).
   const gridCols = 'grid grid-cols-[184px_minmax(0,1fr)]'
 
@@ -453,10 +530,7 @@ export default async function ProgramacionPage({
         <Button variant="outline" className="h-9 rounded-md px-4 text-sm" disabled>
           Imprimir
         </Button>
-        <Button className="h-9 gap-1.5 rounded-md px-4 text-sm" disabled>
-          <Plus className="size-4" strokeWidth={2} />
-          Reserva
-        </Button>
+        <NewReservationButton courts={courtOptions} defaultDate={selectedKey} />
       </DashboardTopbar>
 
       <div className="mx-auto max-w-[1600px] px-8 py-10">
@@ -710,6 +784,9 @@ export default async function ProgramacionPage({
             </div>
           </div>
         )}
+
+        {/* ---- Reservas del día (gestión + cobro) ---- */}
+        <ReservationList rows={reservationRows} />
       </div>
     </>
   )

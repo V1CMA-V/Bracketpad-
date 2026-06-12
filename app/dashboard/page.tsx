@@ -1,4 +1,5 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
+import { NewReservationButton } from '@/components/dashboard/reservation-form'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { auth } from '@/auth'
@@ -209,6 +210,7 @@ export default async function DashboardResumenPage() {
     liveCount,
     courts,
     dayMatches,
+    dayReservations,
     liveMatch,
     dayHours,
   ] = await Promise.all([
@@ -250,6 +252,20 @@ export default async function DashboardResumenPage() {
             players: { include: { player: { select: { fullName: true } } } },
           },
         },
+      },
+    }),
+    // Reservas privadas (juego libre) que apartan pista hoy.
+    prisma.courtReservation.findMany({
+      where: {
+        clubId: club.id,
+        status: 'confirmed',
+        startAt: { gte: dayStart, lt: dayEnd },
+      },
+      select: {
+        courtId: true,
+        startAt: true,
+        durationMinutes: true,
+        holderName: true,
       },
     }),
     prisma.match.findFirst({
@@ -352,6 +368,14 @@ export default async function DashboardResumenPage() {
       .filter((m) => m.status === 'in_progress' && m.courtId)
       .map((m) => m.courtId),
   )
+  // Una reserva en curso ahora mismo también ocupa la pista.
+  const nowMs = now.getTime()
+  for (const r of dayReservations) {
+    const s = r.startAt.getTime()
+    if (nowMs >= s && nowMs < s + r.durationMinutes * 60_000) {
+      occupiedCourtIds.add(r.courtId)
+    }
+  }
   const freeCourts = Math.max(0, courts.length - occupiedCourtIds.size)
 
   const stats = [
@@ -439,7 +463,7 @@ export default async function DashboardResumenPage() {
     start: number
     end: number
     label: string
-    state: 'live' | 'next' | 'done'
+    state: 'live' | 'next' | 'done' | 'reserva'
   }
   const slotsByCourt = new Map<string, ScheduleSlot[]>()
   for (const m of dayMatches) {
@@ -460,6 +484,26 @@ export default async function DashboardResumenPage() {
       state,
     })
     slotsByCourt.set(m.courtId, arr)
+  }
+  // Reservas privadas: bloquean su pista durante su duración (juego libre).
+  for (const r of dayReservations) {
+    const start = r.startAt.getHours() + r.startAt.getMinutes() / 60
+    const arr = slotsByCourt.get(r.courtId) ?? []
+    arr.push({
+      start,
+      end: start + r.durationMinutes / 60,
+      label: r.holderName,
+      state: 'reserva',
+    })
+    slotsByCourt.set(r.courtId, arr)
+  }
+
+  const slotTone: Record<ScheduleSlot['state'], string> = {
+    live: 'bg-forest text-cream',
+    next: 'border border-ochre/40 bg-ochre/15 text-foreground',
+    done: 'border border-border bg-muted/60 text-muted-foreground',
+    // Reservas en oscuro, igual que en la pantalla de programación.
+    reserva: 'bg-ink text-cream',
   }
 
   const allSlots = [...slotsByCourt.values()].flat()
@@ -484,6 +528,10 @@ export default async function DashboardResumenPage() {
     name: c.name,
     slots: (slotsByCourt.get(c.id) ?? []).sort((a, b) => a.start - b.start),
   }))
+
+  // Clave "YYYY-MM-DD" de hoy para prerellenar la fecha del formulario de reserva.
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 
   /* ---- Saludo ---- */
   const hour = now.getHours()
@@ -760,17 +808,21 @@ export default async function DashboardResumenPage() {
                 Programación de pistas
               </h2>
             </div>
-            <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              {[
-                { label: 'En juego', cls: 'bg-forest' },
-                { label: 'Próximo', cls: 'bg-ochre' },
-                { label: 'Disputado', cls: 'bg-muted border border-border' },
-              ].map((legend) => (
-                <span key={legend.label} className="flex items-center gap-1.5">
-                  <span className={cn('size-2.5 rounded-sm', legend.cls)} />
-                  {legend.label}
-                </span>
-              ))}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+              <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {[
+                  { label: 'En juego', cls: 'bg-forest' },
+                  { label: 'Próximo', cls: 'bg-ochre' },
+                  { label: 'Reserva', cls: 'bg-ink' },
+                  { label: 'Disputado', cls: 'bg-muted border border-border' },
+                ].map((legend) => (
+                  <span key={legend.label} className="flex items-center gap-1.5">
+                    <span className={cn('size-2.5 rounded-sm', legend.cls)} />
+                    {legend.label}
+                  </span>
+                ))}
+              </div>
+              <NewReservationButton courts={courts} defaultDate={todayKey} />
             </div>
           </div>
 
@@ -813,11 +865,7 @@ export default async function DashboardResumenPage() {
                           key={i}
                           className={cn(
                             'absolute inset-y-0 flex items-center overflow-hidden rounded-md px-2',
-                            slot.state === 'live'
-                              ? 'bg-forest text-cream'
-                              : slot.state === 'done'
-                                ? 'border border-border bg-muted/60 text-muted-foreground'
-                                : 'border border-ochre/40 bg-ochre/15 text-foreground',
+                            slotTone[slot.state],
                           )}
                           style={{
                             left: `${pct(slot.start)}%`,

@@ -4,7 +4,7 @@ import {
   DashboardProvider,
   type DashboardData,
 } from '@/components/dashboard/dashboard-context'
-import { getDashboardData } from '@/lib/club'
+import { getDashboardData, requireClubAccess } from '@/lib/club'
 
 /**
  * Reusable shell for every `/dashboard/*` page: a fixed menu on the left and a
@@ -16,6 +16,10 @@ export default async function DashboardLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Solo el personal de club puede entrar al dashboard. Sin sesión → /login;
+  // con sesión pero sin rol de club → /cuenta.
+  await requireClubAccess()
+
   const data = await getDashboardData()
   const value: DashboardData = data ?? {
     user: { name: 'Cuenta', accountType: 'player' },

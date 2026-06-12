@@ -16,6 +16,7 @@ export type Club = {
   courts: string
   members: string
   tournaments: string
+  leagues: string
   liveTournaments?: number
 }
 
@@ -121,10 +122,11 @@ export function ClubCard({
           <p className="text-sm text-foreground/70">{club.tagline}</p>
         </div>
 
-        <dl className="mt-auto grid grid-cols-3 gap-3 border-t border-foreground/10 pt-4">
+        <dl className="mt-auto grid grid-cols-2 gap-x-3 gap-y-4 border-t border-foreground/10 pt-4 min-[380px]:grid-cols-4 min-[380px]:gap-y-3">
           <Stat label="Pistas" value={club.courts} />
           <Stat label="Socios" value={club.members} />
           <Stat label="Torneos" value={club.tournaments} accent />
+          <Stat label="Ligas" value={club.leagues} accent />
         </dl>
 
         <span className="flex items-center justify-between border-t border-foreground/10 pt-4 font-mono text-xs uppercase tracking-widest text-foreground">

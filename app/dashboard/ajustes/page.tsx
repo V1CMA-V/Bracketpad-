@@ -35,13 +35,22 @@ export default async function AjustesPage() {
     )
   }
 
-  const [hours, courtCount] = await Promise.all([
+  const [hours, courtCount, pricing] = await Promise.all([
     prisma.clubHours.findMany({
       where: { clubId: club.id },
       select: { dayOfWeek: true, openTime: true, closeTime: true },
     }),
     prisma.court.count({ where: { clubId: club.id } }),
+    prisma.clubClassPricing.findUnique({ where: { clubId: club.id } }),
   ])
+
+  const classPricing = {
+    price1: pricing?.price1 ? Number(pricing.price1) : null,
+    price2: pricing?.price2 ? Number(pricing.price2) : null,
+    price3: pricing?.price3 ? Number(pricing.price3) : null,
+    price4: pricing?.price4 ? Number(pricing.price4) : null,
+    currency: pricing?.currency ?? 'MXN',
+  }
 
   return (
     <ClubSettings
@@ -66,6 +75,7 @@ export default async function AjustesPage() {
       }}
       hours={hours}
       courtCount={courtCount}
+      classPricing={classPricing}
     />
   )
 }

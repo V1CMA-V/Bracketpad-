@@ -18,6 +18,15 @@ export const paymentStatusLabels: Record<ReservationPaymentStatus, string> = {
 export const RESERVATION_STATUSES = ['confirmed', 'cancelled'] as const
 export type ReservationStatus = (typeof RESERVATION_STATUSES)[number]
 
+/** Tipo de reserva: juego libre (normal) o clase con coach. */
+export const RESERVATION_KINDS = ['free_play', 'class'] as const
+export type ReservationKind = (typeof RESERVATION_KINDS)[number]
+
+export const reservationKindLabels: Record<ReservationKind, string> = {
+  free_play: 'Juego libre',
+  class: 'Clase',
+}
+
 /** Duración por defecto de una reserva nueva (minutos). */
 export const DEFAULT_RESERVATION_MINUTES = 90
 

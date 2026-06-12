@@ -2,6 +2,10 @@
 
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import { ClubHoursForm } from '@/components/dashboard/club-hours-form'
+import {
+  ClassPricingSettings,
+  type ClassPricingDefaults,
+} from '@/components/dashboard/class-pricing-settings'
 import { Button } from '@/components/ui/button'
 import { TIMEZONES, timezoneLabels } from '@/lib/clubs'
 import { cn } from '@/lib/utils'
@@ -41,7 +45,13 @@ export type ClubData = {
 
 type DayHours = { dayOfWeek: number; openTime: string; closeTime: string }
 
-type SectionId = 'ficha' | 'contacto' | 'horario' | 'pistas' | 'estado'
+type SectionId =
+  | 'ficha'
+  | 'contacto'
+  | 'horario'
+  | 'pistas'
+  | 'clases'
+  | 'estado'
 
 type Section = {
   id: SectionId
@@ -102,10 +112,22 @@ const sections: Section[] = [
     lead: 'Tus pistas y su disponibilidad se gestionan en su propia sección. Aquí solo ves el resumen.',
   },
   {
-    id: 'estado',
+    id: 'clases',
     n: '05',
+    label: 'Clases',
+    eyebrow: 'Sección 05 · Clases',
+    title: (
+      <>
+        Precios de <em className="italic">las clases.</em>
+      </>
+    ),
+    lead: 'El tarifario de clases según el número de jugadores. Prerellena el cobro al reservar una clase con coach desde la programación.',
+  },
+  {
+    id: 'estado',
+    n: '06',
     label: 'Estado del club',
-    eyebrow: 'Sección 05 · Estado del club',
+    eyebrow: 'Sección 06 · Estado del club',
     title: (
       <>
         Visibilidad y <em className="italic">cierre.</em>
@@ -423,10 +445,12 @@ export function ClubSettings({
   club,
   hours,
   courtCount,
+  classPricing,
 }: {
   club: ClubData
   hours: DayHours[]
   courtCount: number
+  classPricing: ClassPricingDefaults
 }) {
   const [activeId, setActiveId] = useState<SectionId>('ficha')
   const [state, formAction, pending] = useActionState(
@@ -743,6 +767,11 @@ export function ClubSettings({
               {/* --- 03 · Horario del club (formulario propio) --- */}
               <div className={cn(activeId !== 'horario' && 'hidden')}>
                 <ClubHoursForm hours={hours} />
+              </div>
+
+              {/* --- 05 · Clases (tarifario, formulario propio) --- */}
+              <div className={cn(activeId !== 'clases' && 'hidden')}>
+                <ClassPricingSettings defaults={classPricing} />
               </div>
 
               {/* --- 04 · Pistas (solo lectura) --- */}

@@ -116,13 +116,49 @@ model Club {
   memberships ClubMembership[]
   courts      Court[]
   players     Player[]
+  coaches     Coach[]
   leagues     League[]
   tournaments Tournament[]
   matches     Match[]
   hours       ClubHours[]
   reservations CourtReservation[]
+  classPricing ClubClassPricing?
 
   @@map("club")
+}
+
+// Coach del club que imparte clases. Datos básicos: las clases se reservan desde
+// la programación (ver `CourtReservation` con `kind = class`).
+model Coach {
+  id        String   @id @default(uuid())
+  clubId    String
+  fullName  String
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  club         Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  reservations CourtReservation[]
+
+  @@index([clubId])
+  @@map("coach")
+}
+
+// Tarifario de clases del club: precio por clase según cuántos jugadores asisten
+// (1 a 4). Lo edita el club en Ajustes y prerellena el precio al reservar una
+// clase. Cada importe es opcional (null = sin definir para ese nº de jugadores).
+model ClubClassPricing {
+  clubId   String   @id
+  price1   Decimal? @db.Decimal(10, 2)
+  price2   Decimal? @db.Decimal(10, 2)
+  price3   Decimal? @db.Decimal(10, 2)
+  price4   Decimal? @db.Decimal(10, 2)
+  currency String   @default("MXN")
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@map("club_class_pricing")
 }
 
 // Horario de apertura/cierre del club por día de la semana ("HH:MM"). Define el
@@ -194,6 +230,12 @@ model CourtReservation {
   startAt         DateTime // inicio de la reserva
   durationMinutes Int      @db.SmallInt // cuánto aparta la cancha (60, 90…)
   status          ReservationStatus @default(confirmed)
+  // Tipo de reserva: juego libre (por defecto) o clase con coach. En una clase
+  // se nombra al coach y cuántos jugadores asisten (1–4), y el precio se
+  // prerellena desde el tarifario del club (`ClubClassPricing`).
+  kind        ReservationKind @default(free_play)
+  coachId     String?
+  playerCount Int?            @db.SmallInt
   // Cobro: precio total acordado y lo abonado hasta ahora. `paymentStatus`
   // distingue pagado / pendiente / abono parcial; el saldo = price − amountPaid.
   paymentStatus ReservationPaymentStatus @default(pending)
@@ -203,17 +245,24 @@ model CourtReservation {
   notes         String?
   createdAt     DateTime @default(now())
 
-  club  Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  court Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  club  Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  court Court  @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  coach Coach? @relation(fields: [coachId], references: [id], onDelete: SetNull)
 
   @@index([clubId, startAt])
   @@index([courtId, startAt])
+  @@index([coachId, startAt])
   @@map("court_reservation")
 }
 
 enum ReservationStatus {
   confirmed
   cancelled
+}
+
+enum ReservationKind {
+  free_play // juego libre (reserva normal de pista)
+  class // clase con coach
 }
 
 enum ReservationPaymentStatus {

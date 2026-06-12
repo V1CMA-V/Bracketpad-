@@ -7,12 +7,16 @@ import { cn } from '@/lib/utils'
 import { formatMoney } from '@/lib/money'
 import {
   paymentStatusLabels,
+  type ReservationKind,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
 
 export type ReservationRow = {
   id: string
   courtName: string
+  kind: ReservationKind
+  coachName: string | null
+  playerCount: number | null
   holderName: string
   phone: string | null
   timeLabel: string
@@ -163,6 +167,13 @@ export function ReservationList({
                 </p>
                 <p className="truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                   {r.courtName}
+                  {r.kind === 'class' && (
+                    <span className="ml-2 text-ochre">
+                      · Clase
+                      {r.coachName ? ` · ${r.coachName}` : ''}
+                      {r.playerCount ? ` · ${r.playerCount} jug.` : ''}
+                    </span>
+                  )}
                   {r.phone && (
                     <span className="ml-2 inline-flex items-center gap-1 normal-case tracking-normal">
                       <Phone className="size-3" />

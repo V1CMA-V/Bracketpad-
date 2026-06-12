@@ -135,7 +135,8 @@ async function getSchedule(clubId: string, day: Date) {
   const dayEnd = new Date(dayStart)
   dayEnd.setDate(dayEnd.getDate() + 1)
 
-  const [courts, matches, reservations, dayHours] = await Promise.all([
+  const [courts, matches, reservations, coaches, classPricing, dayHours] =
+    await Promise.all([
     prisma.court.findMany({
       where: { clubId, isActive: true },
       orderBy: { name: 'asc' },
@@ -158,11 +159,20 @@ async function getSchedule(clubId: string, day: Date) {
         },
       },
     }),
-    // Reservas privadas del club (juego libre) que apartan una pista ese día.
+    // Reservas privadas del club (juego libre o clase) que apartan pista ese día.
     prisma.courtReservation.findMany({
       where: { clubId, startAt: { gte: dayStart, lt: dayEnd } },
       orderBy: { startAt: 'asc' },
+      include: { coach: { select: { fullName: true } } },
     }),
+    // Coaches activos del club (para reservar clases).
+    prisma.coach.findMany({
+      where: { clubId, isActive: true },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true },
+    }),
+    // Tarifario de clases del club (prerellena el precio al reservar una clase).
+    prisma.clubClassPricing.findUnique({ where: { clubId } }),
     // Horario del club para el día de la semana seleccionado (puede no existir
     // si el club cierra ese día).
     prisma.clubHours.findUnique({
@@ -171,7 +181,7 @@ async function getSchedule(clubId: string, day: Date) {
     }),
   ])
 
-  return { courts, matches, reservations, dayHours }
+  return { courts, matches, reservations, coaches, classPricing, dayHours }
 }
 
 type RawMatch = Awaited<ReturnType<typeof getSchedule>>['matches'][number]
@@ -314,10 +324,22 @@ export default async function ProgramacionPage({
   const todayKey = dateKey(today)
   const isToday = selectedKey === todayKey
 
-  const { courts, matches, reservations, dayHours } = await getSchedule(
-    club.id,
-    selected,
-  )
+  const { courts, matches, reservations, coaches, classPricing, dayHours } =
+    await getSchedule(club.id, selected)
+
+  // Coaches y tarifario de clases para el formulario de reserva.
+  const coachOptions = coaches.map((c) => ({ id: c.id, name: c.fullName }))
+  const classPrices = {
+    currency: classPricing?.currency ?? 'MXN',
+    // byCount[n] = precio para n jugadores (índice 0 sin usar).
+    byCount: [
+      null,
+      classPricing?.price1 ? Number(classPricing.price1) : null,
+      classPricing?.price2 ? Number(classPricing.price2) : null,
+      classPricing?.price3 ? Number(classPricing.price3) : null,
+      classPricing?.price4 ? Number(classPricing.price4) : null,
+    ],
+  }
 
   // Construye los partidos posicionables (con pista y hora) por pista.
   const matchById = new Map<string, ScheduledMatch>()
@@ -380,13 +402,22 @@ export default async function ProgramacionPage({
     const timeLabel = `${String(startH).padStart(2, '0')}:${String(
       startM,
     ).padStart(2, '0')}`
+    // En una clase se muestra el coach y el nº de jugadores; en juego libre, el
+    // estado de cobro como antes.
+    const isClass = r.kind === 'class'
+    const classSuffix =
+      isClass && r.coach
+        ? ` · ${r.coach.fullName}${r.playerCount ? ` · ${r.playerCount} jug.` : ''}`
+        : ''
     const sm: ScheduledMatch = {
       id: r.id,
       kind: 'reserva',
       start,
       duration: r.durationMinutes / 60,
-      subtitle: paymentStatusLabels[r.paymentStatus as ReservationPaymentStatus],
-      tag: 'Reserva',
+      subtitle: isClass
+        ? `Clase${r.coach ? ` · ${r.coach.fullName}` : ''}`
+        : paymentStatusLabels[r.paymentStatus as ReservationPaymentStatus],
+      tag: isClass ? 'Clase' : 'Reserva',
       label: r.holderName,
       timeLabel,
       state: 'reserva',
@@ -394,7 +425,7 @@ export default async function ProgramacionPage({
       lanes: 1,
       // Al hacer clic se abre el panel de edición (?edit=<id>).
       href: `/dashboard/programacion?d=${selectedKey}&edit=${r.id}`,
-      title: `Reserva · ${r.holderName}\n${timeLabel} · ${formatDuration(
+      title: `${isClass ? 'Clase' : 'Reserva'} · ${r.holderName}${classSuffix}\n${timeLabel} · ${formatDuration(
         r.durationMinutes,
       )}`,
     }
@@ -508,6 +539,9 @@ export default async function ProgramacionPage({
     return {
       id: r.id,
       courtName: courtNameById.get(r.courtId) ?? 'Pista',
+      kind: r.kind,
+      coachName: r.coach?.fullName ?? null,
+      playerCount: r.playerCount,
       holderName: r.holderName,
       phone: r.phone,
       timeLabel: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
@@ -531,6 +565,9 @@ export default async function ProgramacionPage({
     ? {
         id: editing.id,
         courtId: editing.courtId,
+        kind: editing.kind,
+        coachId: editing.coachId,
+        playerCount: editing.playerCount,
         holderName: editing.holderName,
         phone: editing.phone,
         date: dateKey(editing.startAt),
@@ -559,7 +596,12 @@ export default async function ProgramacionPage({
         <Button variant="outline" className="h-9 rounded-md px-4 text-sm" disabled>
           Imprimir
         </Button>
-        <NewReservationButton courts={courtOptions} defaultDate={selectedKey} />
+        <NewReservationButton
+          courts={courtOptions}
+          coaches={coachOptions}
+          classPrices={classPrices}
+          defaultDate={selectedKey}
+        />
       </DashboardTopbar>
 
       <div className="mx-auto max-w-[1600px] px-8 py-10">
@@ -823,6 +865,8 @@ export default async function ProgramacionPage({
         <ReservationEditor
           reservation={editingReservation}
           courts={courtOptions}
+          coaches={coachOptions}
+          classPrices={classPrices}
           day={selectedKey}
         />
       )}

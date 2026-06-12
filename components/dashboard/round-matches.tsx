@@ -44,6 +44,18 @@ const fieldCls =
   'h-9 w-full rounded-md border border-border bg-input/30 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
 /**
+ * Plan aleatorio para la «ruleta» de desempate: índice ganador y nº de pasos de
+ * la animación. A nivel de módulo (fuera del render) para no violar la regla de
+ * pureza de componentes (`Math.random` no puede llamarse durante el render).
+ */
+function randomRollPlan(count: number): { finalIdx: number; steps: number } {
+  return {
+    finalIdx: Math.floor(Math.random() * count),
+    steps: 16 + Math.floor(Math.random() * 6),
+  }
+}
+
+/**
  * Acota un input de juegos en tiempo real: solo dígitos (sin signo negativo) y
  * un tope de `MAX_GAMES_PER_SET` (7), ya que en pádel el marcador más alto es
  * 7-6. Evita escribir/pegar valores imposibles, no solo marcarlos como inválidos.
@@ -1193,8 +1205,7 @@ function GroupCard({
     setChosen: (v: string) => void,
   ) => {
     if (rolling || tiePending || options.length < 2) return
-    const finalIdx = Math.floor(Math.random() * options.length)
-    const steps = 16 + Math.floor(Math.random() * 6)
+    const { finalIdx, steps } = randomRollPlan(options.length)
     setRolling(side)
     let i = 0
     const tick = () => {

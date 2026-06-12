@@ -106,12 +106,55 @@ async function findCourtConflict(opts: {
   return null
 }
 
+/**
+ * Un coach no puede impartir dos clases solapadas a la vez (aunque sean en pistas
+ * distintas). Busca otra clase del coach que pise [startAt, startAt+dur) en el día.
+ * Devuelve un mensaje de conflicto o `null`.
+ */
+async function findCoachConflict(opts: {
+  coachId: string
+  startAt: Date
+  durationMinutes: number
+  excludeReservationId?: string
+}): Promise<string | null> {
+  const { coachId, startAt, durationMinutes, excludeReservationId } = opts
+  const newStart = startAt.getTime()
+  const newEnd = newStart + durationMinutes * 60_000
+  const dayStart = new Date(startAt)
+  dayStart.setHours(0, 0, 0, 0)
+  const dayEnd = new Date(dayStart)
+  dayEnd.setDate(dayEnd.getDate() + 1)
+
+  const others = await prisma.courtReservation.findMany({
+    where: {
+      coachId,
+      status: 'confirmed',
+      startAt: { gte: dayStart, lt: dayEnd },
+      ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+    },
+    select: { startAt: true, durationMinutes: true },
+  })
+  for (const r of others) {
+    const s = r.startAt.getTime()
+    const e = s + r.durationMinutes * 60_000
+    if (overlaps(newStart, newEnd, s, e)) {
+      return `El coach ya tiene una clase a las ${hhmm(
+        r.startAt,
+      )}. Elige otra hora.`
+    }
+  }
+  return null
+}
+
 export type ReservationFormState = {
   success?: boolean
   error?: string
   fieldErrors?: Partial<
     Record<
       | 'courtId'
+      | 'kind'
+      | 'coachId'
+      | 'playerCount'
       | 'holderName'
       | 'phone'
       | 'date'
@@ -143,10 +186,47 @@ function resolveAmountPaid(
   return amountPaid ?? 0
 }
 
+/**
+ * Valida los campos de clase: el coach pertenece al club y no tiene otra clase
+ * solapada. Devuelve los valores a persistir (`coachId`/`playerCount`) o un
+ * estado de error. En juego libre devuelve ambos nulos.
+ */
+async function resolveClassFields(
+  d: { kind: 'free_play' | 'class'; coachId?: string; playerCount?: number },
+  clubId: string,
+  startAt: Date,
+  durationMinutes: number,
+  excludeReservationId?: string,
+): Promise<
+  | { error: ReservationFormState }
+  | { coachId: string | null; playerCount: number | null }
+> {
+  if (d.kind !== 'class') return { coachId: null, playerCount: null }
+  // El schema ya garantiza coachId/playerCount presentes cuando kind = class.
+  const coach = await prisma.coach.findFirst({
+    where: { id: d.coachId, clubId },
+    select: { id: true },
+  })
+  if (!coach) {
+    return { error: { fieldErrors: { coachId: ['Coach no válido.'] } } }
+  }
+  const conflict = await findCoachConflict({
+    coachId: d.coachId!,
+    startAt,
+    durationMinutes,
+    excludeReservationId,
+  })
+  if (conflict) return { error: { error: conflict } }
+  return { coachId: d.coachId!, playerCount: d.playerCount ?? null }
+}
+
 /** Lee y valida los campos de reserva de un FormData. */
 function parseReservationForm(formData: FormData) {
   return createReservationSchema.safeParse({
     courtId: formData.get('courtId'),
+    kind: formData.get('kind'),
+    coachId: formData.get('coachId'),
+    playerCount: formData.get('playerCount'),
     holderName: formData.get('holderName'),
     phone: formData.get('phone'),
     date: formData.get('date'),
@@ -194,10 +274,16 @@ export async function createReservation(
   })
   if (conflict) return { error: conflict }
 
+  const cls = await resolveClassFields(d, club.id, startAt, d.durationMinutes)
+  if ('error' in cls) return cls.error
+
   await prisma.courtReservation.create({
     data: {
       clubId: club.id,
       courtId: d.courtId,
+      kind: d.kind,
+      coachId: cls.coachId,
+      playerCount: cls.playerCount,
       holderName: d.holderName,
       phone: d.phone,
       startAt,
@@ -256,10 +342,22 @@ export async function updateReservation(
   })
   if (conflict) return { error: conflict }
 
+  const cls = await resolveClassFields(
+    d,
+    club.id,
+    startAt,
+    d.durationMinutes,
+    reservationId,
+  )
+  if ('error' in cls) return cls.error
+
   await prisma.courtReservation.update({
     where: { id: reservationId },
     data: {
       courtId: d.courtId,
+      kind: d.kind,
+      coachId: cls.coachId,
+      playerCount: cls.playerCount,
       holderName: d.holderName,
       phone: d.phone ?? null,
       startAt,

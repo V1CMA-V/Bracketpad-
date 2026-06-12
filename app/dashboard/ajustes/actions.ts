@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
+import { currencyOptions } from '@/lib/money'
 import {
   clubSettingsSchema,
   type ClubFieldErrors,
@@ -94,6 +95,76 @@ export async function updateClubSettings(
 
   revalidatePath('/dashboard/ajustes')
   revalidatePath('/dashboard')
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Tarifario de clases                                                        */
+/* -------------------------------------------------------------------------- */
+
+// Importe opcional ("" → undefined; texto inválido → error).
+const priceField = z
+  .union([z.literal(''), z.coerce.number().min(0, 'Importe inválido.')])
+  .transform((v) => (v === '' ? undefined : v))
+  .optional()
+
+const classPricingSchema = z.object({
+  price1: priceField,
+  price2: priceField,
+  price3: priceField,
+  price4: priceField,
+  currency: z.enum(currencyOptions).default('MXN'),
+})
+
+export type ClassPricingState = {
+  success?: boolean
+  error?: string
+  fieldErrors?: Partial<
+    Record<'price1' | 'price2' | 'price3' | 'price4' | 'currency', string[]>
+  >
+}
+
+/** Guarda el tarifario de clases del club (precio por nº de jugadores 1–4). */
+export async function updateClassPricing(
+  _prevState: ClassPricingState,
+  formData: FormData,
+): Promise<ClassPricingState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const parsed = classPricingSchema.safeParse({
+    price1: formData.get('price1'),
+    price2: formData.get('price2'),
+    price3: formData.get('price3'),
+    price4: formData.get('price4'),
+    currency: formData.get('currency'),
+  })
+  if (!parsed.success) {
+    return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
+  }
+  const d = parsed.data
+
+  await prisma.clubClassPricing.upsert({
+    where: { clubId: club.id },
+    update: {
+      price1: d.price1 ?? null,
+      price2: d.price2 ?? null,
+      price3: d.price3 ?? null,
+      price4: d.price4 ?? null,
+      currency: d.currency,
+    },
+    create: {
+      clubId: club.id,
+      price1: d.price1 ?? null,
+      price2: d.price2 ?? null,
+      price3: d.price3 ?? null,
+      price4: d.price4 ?? null,
+      currency: d.currency,
+    },
+  })
+
+  revalidatePath('/dashboard/ajustes')
+  revalidatePath('/dashboard/programacion')
   return { success: true }
 }
 

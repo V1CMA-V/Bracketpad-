@@ -16,6 +16,17 @@ const moneyField = z
 export const createReservationSchema = z
   .object({
     courtId: z.string().uuid('Elige una pista.'),
+    // Tipo de reserva: juego libre (defecto) o clase con coach.
+    kind: z.enum(['free_play', 'class']).default('free_play'),
+    // En una clase se elige un coach del club y cuántos jugadores asisten (1–4).
+    coachId: z
+      .union([z.literal(''), z.string().uuid('Coach no válido.')])
+      .transform((v) => (v === '' ? undefined : v))
+      .optional(),
+    playerCount: z
+      .union([z.literal(''), z.coerce.number().int().min(1).max(4)])
+      .transform((v) => (v === '' ? undefined : v))
+      .optional(),
     holderName: z
       .string()
       .trim()
@@ -53,6 +64,16 @@ export const createReservationSchema = z
       d.amountPaid == null ||
       d.amountPaid <= d.price,
     { path: ['amountPaid'], error: 'El abono no puede superar el total.' },
+  )
+  .refine(
+    // Una clase exige elegir un coach.
+    (d) => d.kind !== 'class' || !!d.coachId,
+    { path: ['coachId'], error: 'Elige el coach de la clase.' },
+  )
+  .refine(
+    // Una clase exige indicar cuántos jugadores asisten (1–4).
+    (d) => d.kind !== 'class' || (d.playerCount != null && d.playerCount >= 1),
+    { path: ['playerCount'], error: 'Indica cuántos jugadores (1–4).' },
   )
 
 export type CreateReservationInput = z.infer<typeof createReservationSchema>

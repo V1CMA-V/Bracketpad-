@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/sheet'
 import {
   ReservationFields,
+  type ClassPrices,
+  type CoachOption,
   type ReservationDefaults,
 } from '@/components/dashboard/reservation-fields'
 import { type ReservationPaymentStatus } from '@/lib/reservations'
@@ -42,10 +44,14 @@ type Court = { id: string; name: string }
 export function ReservationEditor({
   reservation,
   courts,
+  coaches = [],
+  classPrices,
   day,
 }: {
   reservation: EditableReservation
   courts: Court[]
+  coaches?: CoachOption[]
+  classPrices?: ClassPrices
   day: string
 }) {
   const router = useRouter()
@@ -101,6 +107,8 @@ export function ReservationEditor({
 
           <ReservationFields
             courts={courts}
+            coaches={coaches}
+            classPrices={classPrices}
             defaults={reservation}
             errors={state.fieldErrors}
             payment={payment}

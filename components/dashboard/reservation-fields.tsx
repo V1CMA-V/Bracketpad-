@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+
 import { cn } from '@/lib/utils'
 import { currencyOptions } from '@/lib/money'
 import {
@@ -7,12 +9,16 @@ import {
   DURATION_OPTIONS,
   paymentStatusLabels,
   RESERVATION_PAYMENT_STATUSES,
+  type ReservationKind,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
 
 export type ReservationFieldErrors = Partial<
   Record<
     | 'courtId'
+    | 'kind'
+    | 'coachId'
+    | 'playerCount'
     | 'holderName'
     | 'phone'
     | 'date'
@@ -29,6 +35,9 @@ export type ReservationFieldErrors = Partial<
 
 export type ReservationDefaults = {
   courtId?: string
+  kind?: ReservationKind
+  coachId?: string | null
+  playerCount?: number | null
   holderName?: string
   phone?: string | null
   date?: string
@@ -40,6 +49,15 @@ export type ReservationDefaults = {
   currency?: string
   notes?: string | null
 }
+
+/** Tarifario de clases del club: precio sugerido por nº de jugadores (1–4). */
+export type ClassPrices = {
+  currency: string
+  /** `byCount[n]` = precio para n jugadores (n = 1..4); null = sin definir. */
+  byCount: (number | null)[]
+}
+
+export type CoachOption = { id: string; name: string }
 
 const fieldCls =
   'h-10 w-full rounded-md border border-border bg-input/30 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
@@ -55,25 +73,138 @@ function FieldErr({ messages }: { messages?: string[] }) {
 type Court = { id: string; name: string }
 
 /**
- * Campos compartidos del formulario de reserva (alta y edición). Los inputs son
- * no controlados (usan `defaultValue`); el estado de cobro sí es controlado por
- * el padre para mostrar el campo «Abonado» solo en abono parcial.
+ * Campos compartidos del formulario de reserva (alta y edición). La mayoría de
+ * inputs son no controlados (`defaultValue`); el estado de cobro lo controla el
+ * padre (para mostrar «Abonado» solo en abono parcial). El tipo (juego libre /
+ * clase), el nº de jugadores, el precio y la moneda se controlan aquí para poder
+ * prerellenar el precio según el tarifario del club cuando es una clase.
  */
 export function ReservationFields({
   courts,
+  coaches = [],
+  classPrices = { currency: 'MXN', byCount: [] },
   defaults = {},
   errors,
   payment,
   onPaymentChange,
 }: {
   courts: Court[]
+  coaches?: CoachOption[]
+  classPrices?: ClassPrices
   defaults?: ReservationDefaults
   errors?: ReservationFieldErrors
   payment: ReservationPaymentStatus
   onPaymentChange: (value: ReservationPaymentStatus) => void
 }) {
+  const [kind, setKind] = useState<ReservationKind>(
+    defaults.kind ?? 'free_play',
+  )
+  const [playerCount, setPlayerCount] = useState<number>(
+    defaults.playerCount ?? 1,
+  )
+  const [price, setPrice] = useState<string>(
+    defaults.price != null ? String(defaults.price) : '',
+  )
+  const [currency, setCurrency] = useState<string>(
+    defaults.currency ?? 'MXN',
+  )
+
+  // Aplica el precio sugerido del tarifario para `count` jugadores (si existe).
+  const applySuggestedPrice = (count: number) => {
+    const suggested = classPrices.byCount[count]
+    if (suggested != null) {
+      setPrice(String(suggested))
+      setCurrency(classPrices.currency)
+    }
+  }
+
+  const onKindChange = (next: ReservationKind) => {
+    setKind(next)
+    if (next === 'class') applySuggestedPrice(playerCount)
+  }
+
+  const onPlayerCountChange = (count: number) => {
+    setPlayerCount(count)
+    applySuggestedPrice(count)
+  }
+
   return (
     <>
+      {/* Tipo de reserva */}
+      <input type="hidden" name="kind" value={kind} />
+      <div>
+        <span className={labelCls}>Tipo</span>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {(['free_play', 'class'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => onKindChange(k)}
+              aria-pressed={kind === k}
+              className={cn(
+                'h-10 rounded-md border text-sm transition-colors',
+                kind === k
+                  ? 'border-foreground bg-foreground text-background'
+                  : 'border-border bg-input/30 text-muted-foreground hover:bg-muted/50',
+              )}
+            >
+              {k === 'free_play' ? 'Juego libre' : 'Clase'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Coach + nº de jugadores (solo en clase) */}
+      {kind === 'class' && (
+        <div className="grid grid-cols-[1fr_120px] gap-3">
+          <div>
+            <label htmlFor="coachId" className={labelCls}>
+              Coach
+            </label>
+            <select
+              id="coachId"
+              name="coachId"
+              defaultValue={defaults.coachId ?? ''}
+              className={cn('mt-2', fieldCls)}
+              aria-invalid={!!errors?.coachId}
+            >
+              <option value="">Elegir coach…</option>
+              {coaches.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <FieldErr messages={errors?.coachId} />
+            {coaches.length === 0 && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                No hay coaches. Regístralos en la sección Coaches.
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="playerCount" className={labelCls}>
+              Jugadores
+            </label>
+            <select
+              id="playerCount"
+              name="playerCount"
+              value={playerCount}
+              onChange={(e) => onPlayerCountChange(Number(e.target.value))}
+              className={cn('mt-2', fieldCls)}
+              aria-invalid={!!errors?.playerCount}
+            >
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <FieldErr messages={errors?.playerCount} />
+          </div>
+        </div>
+      )}
+
       {/* Titular */}
       <div>
         <label htmlFor="holderName" className={labelCls}>
@@ -215,7 +346,8 @@ export function ReservationFields({
             <select
               id="currency"
               name="currency"
-              defaultValue={defaults.currency ?? 'MXN'}
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
               className={cn('mt-2', fieldCls)}
             >
               {currencyOptions.map((c) => (
@@ -241,7 +373,8 @@ export function ReservationFields({
               step="0.01"
               inputMode="decimal"
               placeholder="0.00"
-              defaultValue={defaults.price ?? ''}
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
               className={cn('mt-2', fieldCls)}
               aria-invalid={!!errors?.price}
             />

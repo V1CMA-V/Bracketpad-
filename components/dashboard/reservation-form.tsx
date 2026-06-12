@@ -13,7 +13,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
-import { ReservationFields } from '@/components/dashboard/reservation-fields'
+import {
+  ReservationFields,
+  type ClassPrices,
+  type CoachOption,
+} from '@/components/dashboard/reservation-fields'
 import { type ReservationPaymentStatus } from '@/lib/reservations'
 import {
   createReservation,
@@ -26,9 +30,13 @@ type Court = { id: string; name: string }
 
 export function NewReservationButton({
   courts,
+  coaches = [],
+  classPrices,
   defaultDate,
 }: {
   courts: Court[]
+  coaches?: CoachOption[]
+  classPrices?: ClassPrices
   // Día seleccionado en la programación ("YYYY-MM-DD"), para prerellenar la fecha.
   defaultDate: string
 }) {
@@ -38,12 +46,16 @@ export function NewReservationButton({
     initialState,
   )
   const [payment, setPayment] = useState<ReservationPaymentStatus>('pending')
+  // Se incrementa al guardar para remontar los campos y limpiar su estado
+  // interno controlado (tipo, coach, nº de jugadores, precio y moneda).
+  const [fieldsKey, setFieldsKey] = useState(0)
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     if (state.success) {
       formRef.current?.reset()
       setPayment('pending')
+      setFieldsKey((k) => k + 1)
       setOpen(false)
     }
   }, [state.success])
@@ -90,7 +102,10 @@ export function NewReservationButton({
           )}
 
           <ReservationFields
+            key={fieldsKey}
             courts={courts}
+            coaches={coaches}
+            classPrices={classPrices}
             defaults={{ date: defaultDate }}
             errors={state.fieldErrors}
             payment={payment}

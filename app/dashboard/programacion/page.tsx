@@ -1,11 +1,14 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
+import { DayJump } from '@/components/dashboard/day-jump'
 import { NewReservationButton } from '@/components/dashboard/reservation-form'
 import {
   ReservationEditor,
   type EditableReservation,
 } from '@/components/dashboard/reservation-editor'
 import {
-  ReservationList,
+  DayItinerary,
+  type ItineraryItem,
+  type MatchState,
   type ReservationRow,
 } from '@/components/dashboard/reservation-list'
 import { Button } from '@/components/ui/button'
@@ -18,6 +21,7 @@ import {
   paymentStatusLabels,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
+import { CalendarClock } from 'lucide-react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -513,15 +517,75 @@ export default async function ProgramacionPage({
   const hours = Array.from({ length: windowHours }, (_, i) => windowStart + i)
 
   // Métricas del día.
-  const inPlay = matches.filter((m) => m.status === 'in_progress').length
+  // Reservas vigentes (no canceladas), separadas en clases y juego libre, para
+  // que el conteo de «programados» refleje todo lo que ocupa pista, no solo los
+  // partidos de competición.
+  const activeReservations = reservations.filter((r) => r.status !== 'cancelled')
+  const classCount = activeReservations.filter((r) => r.kind === 'class').length
+  const reservaCount = activeReservations.length - classCount
+  const scheduledTotal = matches.length + activeReservations.length
+  // Desglose compacto para el subtítulo de «Programados» (omite los ceros).
+  const scheduledBreakdown =
+    [
+      matches.length > 0
+        ? `${matches.length} ${matches.length === 1 ? 'partido' : 'partidos'}`
+        : null,
+      reservaCount > 0
+        ? `${reservaCount} ${reservaCount === 1 ? 'reserva' : 'reservas'}`
+        : null,
+      classCount > 0
+        ? `${classCount} ${classCount === 1 ? 'clase' : 'clases'}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'nada programado'
+
+  // «En juego» = partidos en curso + reservas/clases activas ahora mismo (solo
+  // tiene sentido en el día de hoy; otros días siempre es 0).
+  const nowMs = Date.now()
+  const inPlayMatches = matches.filter((m) => m.status === 'in_progress').length
+  const inPlayReservations = isToday
+    ? activeReservations.filter((r) => {
+        const start = r.startAt.getTime()
+        return nowMs >= start && nowMs < start + r.durationMinutes * 60_000
+      }).length
+    : 0
+  const inPlay = inPlayMatches + inPlayReservations
   const occupiedHours = placed.reduce((sum, m) => sum + m.duration, 0)
   const capacity = courts.length * windowHours
   const occupancy = capacity > 0 ? Math.round((occupiedHours / capacity) * 100) : 0
-  const stats = [
-    { label: 'Programados', value: String(matches.length) },
-    { label: 'En juego', value: String(inPlay) },
-    { label: 'Conflictos', value: String(conflictPairs), accent: conflictPairs > 0 },
-    { label: 'Ocupación', value: `${occupancy}%` },
+  type Stat = {
+    label: string
+    value: string
+    hint: string
+    live?: boolean
+    accent?: boolean
+    fraction?: number
+  }
+  const stats: Stat[] = [
+    {
+      label: 'Programados',
+      value: String(scheduledTotal),
+      hint: scheduledBreakdown,
+    },
+    {
+      label: 'En juego',
+      value: String(inPlay),
+      hint: inPlay > 0 ? 'en pista ahora' : 'sin actividad',
+      live: inPlay > 0,
+    },
+    {
+      label: 'Conflictos',
+      value: String(conflictPairs),
+      hint: conflictPairs > 0 ? 'requiere acción' : 'sin choques',
+      accent: conflictPairs > 0,
+    },
+    {
+      label: 'Ocupación',
+      value: `${occupancy}%`,
+      hint: `${courts.length} ${courts.length === 1 ? 'pista' : 'pistas'}`,
+      fraction: occupancy / 100,
+    },
   ]
 
   // Semana (lunes → domingo) que contiene el día seleccionado.
@@ -563,6 +627,29 @@ export default async function ProgramacionPage({
       notes: r.notes,
     }
   })
+
+  // Itinerario del día: reservas/clases (con su cobro) + partidos de competición
+  // (que enlazan a su jornada), todo ordenado por hora de inicio. Las etiquetas
+  // "HH:MM" llevan ceros, así que ordenan bien como texto.
+  const itinerary: ItineraryItem[] = [
+    ...reservationRows.map((r) => ({ type: 'reservation' as const, ...r })),
+    ...courtRows.flatMap((court) =>
+      court.matches
+        .filter((m) => m.kind === 'match')
+        .map((m) => ({
+          type: 'match' as const,
+          id: m.id,
+          courtName: court.name,
+          timeLabel: m.timeLabel,
+          durationLabel: formatDuration(Math.round(m.duration * 60)),
+          label: m.label,
+          subtitle: m.subtitle,
+          tag: m.tag,
+          state: m.state as MatchState,
+          href: m.href,
+        })),
+    ),
+  ].sort((a, b) => a.timeLabel.localeCompare(b.timeLabel))
 
   // Pistas (id + nombre) para el selector del formulario de reserva.
   const courtOptions = courts.map((c) => ({ id: c.id, name: c.name }))
@@ -625,15 +712,12 @@ export default async function ProgramacionPage({
               <em className="italic">{dayMonthFmt.format(selected)}</em>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              {matches.length === 0 ? (
-                <>No hay partidos programados este día.</>
+              {scheduledTotal === 0 ? (
+                <>No hay nada programado este día.</>
               ) : (
                 <>
-                  {matches.length}{' '}
-                  {matches.length === 1
-                    ? 'partido programado'
-                    : 'partidos programados'}{' '}
-                  en {courts.length} {courts.length === 1 ? 'pista' : 'pistas'}.
+                  <span className="capitalize">{scheduledBreakdown}</span> en{' '}
+                  {courts.length} {courts.length === 1 ? 'pista' : 'pistas'}.
                   {conflictPairs > 0 ? (
                     <>
                       {' '}
@@ -670,19 +754,56 @@ export default async function ProgramacionPage({
             </p>
           </div>
 
-          <dl className="grid grid-cols-2 gap-x-10 gap-y-6 sm:grid-cols-4 lg:gap-x-8">
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[540px]">
             {stats.map((stat) => (
-              <div key={stat.label} className="flex flex-col gap-1.5">
-                <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <div
+                key={stat.label}
+                className={cn(
+                  'flex flex-col justify-between gap-4 rounded-xl border bg-card/50 p-4',
+                  stat.accent
+                    ? 'border-terracotta/40 bg-terracotta/5'
+                    : 'border-border',
+                )}
+              >
+                <dt className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {stat.live && (
+                    <span className="relative flex size-1.5">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-forest opacity-75" />
+                      <span className="relative inline-flex size-1.5 rounded-full bg-forest" />
+                    </span>
+                  )}
                   {stat.label}
                 </dt>
-                <dd
-                  className={cn(
-                    'font-serif text-4xl leading-none',
-                    stat.accent ? 'text-terracotta' : 'text-foreground',
+                <dd className="flex flex-col gap-2">
+                  <span
+                    className={cn(
+                      'font-serif text-4xl leading-none tabular-nums',
+                      stat.accent ? 'text-terracotta' : 'text-foreground',
+                    )}
+                  >
+                    {stat.value}
+                  </span>
+                  {stat.fraction != null ? (
+                    <span className="block h-1 w-full overflow-hidden rounded-full bg-muted">
+                      <span
+                        className="block h-full rounded-full bg-forest"
+                        style={{
+                          width: `${Math.min(100, Math.round(stat.fraction * 100))}%`,
+                        }}
+                      />
+                    </span>
+                  ) : (
+                    <span
+                      className={cn(
+                        'font-mono text-[9px] uppercase tracking-wider',
+                        stat.accent
+                          ? 'text-terracotta/80'
+                          : 'text-muted-foreground/70',
+                      )}
+                    >
+                      {stat.hint}
+                    </span>
                   )}
-                >
-                  {stat.value}
                 </dd>
               </div>
             ))}
@@ -710,6 +831,21 @@ export default async function ProgramacionPage({
                 </Link>
               )
             })}
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+            <Link
+              href={`/dashboard/programacion?d=${todayKey}`}
+              aria-disabled={isToday}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider transition-colors',
+                isToday
+                  ? 'pointer-events-none border-transparent text-muted-foreground/50'
+                  : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              <CalendarClock className="size-3.5" />
+              Hoy
+            </Link>
+            <DayJump value={selectedKey} />
           </div>
 
           <div className="flex flex-wrap items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -866,7 +1002,7 @@ export default async function ProgramacionPage({
         )}
 
         {/* ---- Reservas del día (gestión + cobro) ---- */}
-        <ReservationList rows={reservationRows} day={selectedKey} />
+        <DayItinerary items={itinerary} day={selectedKey} />
       </div>
 
       {/* Panel de edición de reserva (se monta con ?edit=<id>) */}

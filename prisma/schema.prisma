@@ -519,7 +519,7 @@ model Match {
 
   club        Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
   league      League?             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-  leagueRound LeagueRound?        @relation(fields: [leagueRoundId], references: [id], onDelete: SetNull)
+  leagueRound LeagueRound?        @relation(fields: [leagueRoundId], references: [id], onDelete: Cascade)
   category    TournamentCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   court       Court?              @relation(fields: [courtId], references: [id], onDelete: SetNull)
   sides       MatchSide[]

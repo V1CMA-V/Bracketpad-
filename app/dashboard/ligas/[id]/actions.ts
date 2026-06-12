@@ -275,7 +275,8 @@ export async function deleteRound(roundId: string) {
     select: { id: true, leagueId: true },
   })
   if (!round) return
-  // Los partidos de la jornada quedan con leagueRoundId = null (onDelete: SetNull).
+  // Al borrar la jornada se borran en cascada sus partidos (onDelete: Cascade),
+  // y con ellos sus lados, sets y slots de grupo.
   await prisma.leagueRound.delete({ where: { id: round.id } })
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
 }

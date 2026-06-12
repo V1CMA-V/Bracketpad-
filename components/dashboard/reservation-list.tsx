@@ -1,20 +1,14 @@
 'use client'
 
-import { useTransition } from 'react'
-import { Check, Phone, X, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronRight, Phone } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
 import {
   paymentStatusLabels,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
-import {
-  cancelReservation,
-  deleteReservation,
-  markReservationPaid,
-} from '@/app/dashboard/programacion/actions'
 
 export type ReservationRow = {
   id: string
@@ -35,49 +29,6 @@ const paymentTone: Record<ReservationPaymentStatus, string> = {
   paid: 'bg-forest/15 text-forest',
   pending: 'bg-terracotta/15 text-terracotta',
   partial: 'bg-ochre/20 text-ochre',
-}
-
-function RowActions({ r }: { r: ReservationRow }) {
-  const [pending, startTransition] = useTransition()
-
-  return (
-    <div className="flex items-center gap-1">
-      {!r.cancelled && r.paymentStatus !== 'paid' && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 px-2 text-xs"
-          disabled={pending}
-          onClick={() => startTransition(() => markReservationPaid(r.id))}
-        >
-          <Check className="size-3.5" />
-          Marcar pagado
-        </Button>
-      )}
-      {!r.cancelled && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 px-2 text-xs text-muted-foreground"
-          disabled={pending}
-          onClick={() => startTransition(() => cancelReservation(r.id))}
-        >
-          <X className="size-3.5" />
-          Cancelar
-        </Button>
-      )}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="text-muted-foreground hover:text-destructive"
-        disabled={pending}
-        title="Eliminar reserva"
-        onClick={() => startTransition(() => deleteReservation(r.id))}
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
-    </div>
-  )
 }
 
 type CashTotals = { billed: number; collected: number; outstanding: number }
@@ -164,7 +115,14 @@ function CashSummary({ rows }: { rows: ReservationRow[] }) {
   )
 }
 
-export function ReservationList({ rows }: { rows: ReservationRow[] }) {
+export function ReservationList({
+  rows,
+  day,
+}: {
+  rows: ReservationRow[]
+  // Día visible ("YYYY-MM-DD"), para construir el enlace de edición.
+  day: string
+}) {
   if (rows.length === 0) return null
 
   return (
@@ -179,10 +137,11 @@ export function ReservationList({ rows }: { rows: ReservationRow[] }) {
           const balance =
             r.price != null ? Math.max(r.price - r.amountPaid, 0) : null
           return (
-            <div
+            <Link
               key={r.id}
+              href={`/dashboard/programacion?d=${day}&edit=${r.id}`}
               className={cn(
-                'flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3',
+                'flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-muted/40',
                 r.cancelled && 'opacity-50',
               )}
             >
@@ -243,8 +202,11 @@ export function ReservationList({ rows }: { rows: ReservationRow[] }) {
                 )}
               </div>
 
-              <RowActions r={r} />
-            </div>
+              <ChevronRight
+                className="size-4 shrink-0 text-muted-foreground"
+                strokeWidth={1.5}
+              />
+            </Link>
           )
         })}
       </div>

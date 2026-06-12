@@ -1,6 +1,10 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
 import { NewReservationButton } from '@/components/dashboard/reservation-form'
 import {
+  ReservationEditor,
+  type EditableReservation,
+} from '@/components/dashboard/reservation-editor'
+import {
   ReservationList,
   type ReservationRow,
 } from '@/components/dashboard/reservation-list'
@@ -296,12 +300,12 @@ function MatchBlock({
 export default async function ProgramacionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ d?: string }>
+  searchParams: Promise<{ d?: string; edit?: string }>
 }) {
   const club = await getManagedClub()
   if (!club) notFound()
 
-  const { d } = await searchParams
+  const { d, edit } = await searchParams
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const selected =
@@ -388,6 +392,8 @@ export default async function ProgramacionPage({
       state: 'reserva',
       lane: 0,
       lanes: 1,
+      // Al hacer clic se abre el panel de edición (?edit=<id>).
+      href: `/dashboard/programacion?d=${selectedKey}&edit=${r.id}`,
       title: `Reserva · ${r.holderName}\n${timeLabel} · ${formatDuration(
         r.durationMinutes,
       )}`,
@@ -517,6 +523,29 @@ export default async function ProgramacionPage({
 
   // Pistas (id + nombre) para el selector del formulario de reserva.
   const courtOptions = courts.map((c) => ({ id: c.id, name: c.name }))
+
+  // Reserva en edición (?edit=<id>): se construye el payload con los valores en
+  // crudo para prerellenar el panel. Si el id no existe, no se abre nada.
+  const editing = edit ? reservations.find((r) => r.id === edit) : undefined
+  const editingReservation: EditableReservation | null = editing
+    ? {
+        id: editing.id,
+        courtId: editing.courtId,
+        holderName: editing.holderName,
+        phone: editing.phone,
+        date: dateKey(editing.startAt),
+        time: `${String(editing.startAt.getHours()).padStart(2, '0')}:${String(
+          editing.startAt.getMinutes(),
+        ).padStart(2, '0')}`,
+        durationMinutes: editing.durationMinutes,
+        paymentStatus: editing.paymentStatus as ReservationPaymentStatus,
+        price: editing.price ? Number(editing.price) : null,
+        amountPaid: Number(editing.amountPaid),
+        currency: editing.currency,
+        notes: editing.notes,
+        cancelled: editing.status === 'cancelled',
+      }
+    : null
 
   // Plantilla de columnas: etiqueta de pista + pista temporal (1fr).
   const gridCols = 'grid grid-cols-[184px_minmax(0,1fr)]'
@@ -786,8 +815,17 @@ export default async function ProgramacionPage({
         )}
 
         {/* ---- Reservas del día (gestión + cobro) ---- */}
-        <ReservationList rows={reservationRows} />
+        <ReservationList rows={reservationRows} day={selectedKey} />
       </div>
+
+      {/* Panel de edición de reserva (se monta con ?edit=<id>) */}
+      {editingReservation && (
+        <ReservationEditor
+          reservation={editingReservation}
+          courts={courtOptions}
+          day={selectedKey}
+        />
+      )}
     </>
   )
 }

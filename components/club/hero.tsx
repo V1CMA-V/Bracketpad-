@@ -30,6 +30,7 @@ export function Hero({
   name,
   city,
   address,
+  joinedYear,
   foundedYear,
   playersCount,
   leaguesCount,
@@ -42,7 +43,8 @@ export function Hero({
   name: string
   city?: string | null
   address?: string | null
-  foundedYear: number
+  joinedYear: number
+  foundedYear?: number | null
   playersCount: number
   leaguesCount: number
   tournamentsCount: number
@@ -82,7 +84,11 @@ export function Hero({
               {initial}
             </div>
             <div className="flex flex-col gap-1 pt-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
-              <p>Club afiliado · en Bandeja desde {foundedYear}</p>
+              <p>
+                {foundedYear
+                  ? `Fundado en ${foundedYear} · en Bandeja desde ${joinedYear}`
+                  : `Club afiliado · en Bandeja desde ${joinedYear}`}
+              </p>
               {(address || city) && <p>{[address, city].filter(Boolean).join(' · ')}</p>}
             </div>
           </div>
@@ -178,7 +184,7 @@ export function Hero({
           <div className="mt-8 flex items-end justify-between font-mono text-xs uppercase tracking-wider text-cream/70">
             <p className="flex items-center gap-3">
               <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-lime" /> En juego
+                <span className="h-2 w-2 rounded-full bg-lime" /> Ocupada
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-ochre" /> Próximo

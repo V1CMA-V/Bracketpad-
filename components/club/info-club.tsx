@@ -35,6 +35,8 @@ export function InfoClub({
   name,
   city,
   address,
+  state,
+  country,
   phone,
   email,
   website,
@@ -54,6 +56,8 @@ export function InfoClub({
   name: string
   city?: string | null
   address?: string | null
+  state?: string | null
+  country?: string | null
   phone?: string | null
   email?: string | null
   website?: string | null
@@ -85,7 +89,7 @@ export function InfoClub({
   const hasCoords = latitude != null && longitude != null
   const destination = hasCoords
     ? `${latitude},${longitude}`
-    : [name, address, city].filter(Boolean).join(', ')
+    : [name, address, city, state, country].filter(Boolean).join(', ')
   const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
     destination,
   )}`

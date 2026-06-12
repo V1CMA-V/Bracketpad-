@@ -5,6 +5,7 @@ type Stat = {
 }
 
 export function NumberClub({
+  joinedYear,
   foundedYear,
   totalCourts,
   indoorCourts,
@@ -14,7 +15,8 @@ export function NumberClub({
   activeCompetitions,
   tournamentsCount,
 }: {
-  foundedYear: number
+  joinedYear: number
+  foundedYear?: number | null
   totalCourts: number
   indoorCourts: number
   outdoorCourts: number
@@ -24,14 +26,26 @@ export function NumberClub({
   tournamentsCount: number
 }) {
   const currentYear = new Date().getFullYear()
-  const years = Math.max(0, currentYear - foundedYear)
+  const years = Math.max(0, currentYear - joinedYear)
+  const joinedDetail =
+    years === 0 ? 'este año' : `${years} ${years === 1 ? 'año' : 'años'}`
+
+  // Si el club indicó su año de fundación, ese es el dato protagonista; el alta
+  // en Bandeja pasa al detalle. Si no, mostramos solo la antigüedad en Bandeja.
+  const foundingStat: Stat = foundedYear
+    ? {
+        label: 'Fundado',
+        value: String(foundedYear),
+        detail: `en Bandeja desde ${joinedYear}`,
+      }
+    : {
+        label: 'En Bandeja',
+        value: String(joinedYear),
+        detail: joinedDetail,
+      }
 
   const stats: Stat[] = [
-    {
-      label: 'En Bandeja',
-      value: String(foundedYear),
-      detail: years === 0 ? 'este año' : `${years} ${years === 1 ? 'año' : 'años'}`,
-    },
+    foundingStat,
     {
       label: 'Pistas',
       value: String(totalCourts).padStart(2, '0'),

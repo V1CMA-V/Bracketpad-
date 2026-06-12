@@ -69,6 +69,9 @@ async function getClub(slug: string) {
       description: true,
       website: true,
       instagram: true,
+      foundedYear: true,
+      state: true,
+      country: true,
       latitude: true,
       longitude: true,
       createdAt: true,
@@ -152,7 +155,21 @@ async function getClub(slug: string) {
     select: { courtId: true, status: true, scheduledAt: true },
   })
 
-  return { club, courtMatches }
+  // Reservas y clases que ocupan pista ahora o en breve. La ventana arranca unas
+  // horas antes para captar las que siguen en curso (duran 60–90 min).
+  const now = Date.now()
+  const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000)
+  const reservations = await prisma.courtReservation.findMany({
+    where: {
+      clubId: club.id,
+      status: 'confirmed',
+      startAt: { gte: sixHoursAgo },
+    },
+    orderBy: { startAt: 'asc' },
+    select: { courtId: true, startAt: true, durationMinutes: true, kind: true },
+  })
+
+  return { club, courtMatches, reservations, now }
 }
 
 export async function generateMetadata({
@@ -186,17 +203,40 @@ export default async function ClubPage({
   const { clubSlug } = await params
   const data = await getClub(clubSlug)
   if (!data) notFound()
-  const { club, courtMatches } = data
+  const { club, courtMatches, reservations, now } = data
 
   /* --- Pistas + estado en vivo --- */
-  const playingCourts = new Set(
-    courtMatches.filter((m) => m.status === 'in_progress').map((m) => m.courtId),
-  )
-  // Primer partido programado por pista (ya viene ordenado por scheduledAt).
-  const nextByCourt = new Map<string, Date | null>()
+  // La ocupación combina partidos, reservas de juego libre y clases. Una pista
+  // está «en juego» si algo la ocupa ahora mismo; «próxima» si tiene el siguiente
+  // turno programado (lo más cercano entre partido, reserva o clase).
+  const occupied = new Map<string, string>() // courtId → detalle («… en curso»)
+  const nextByCourt = new Map<string, Date>() // courtId → inicio del próximo turno
+
+  const considerNext = (courtId: string | null, at: Date | null) => {
+    if (!courtId || !at || at.getTime() <= now) return
+    const current = nextByCourt.get(courtId)
+    if (!current || at < current) nextByCourt.set(courtId, at)
+  }
+
+  // Partidos: en curso ocupan; programados cuentan como próximo turno.
   for (const m of courtMatches) {
-    if (m.status === 'scheduled' && m.courtId && !nextByCourt.has(m.courtId)) {
-      nextByCourt.set(m.courtId, m.scheduledAt)
+    if (!m.courtId) continue
+    if (m.status === 'in_progress') {
+      if (!occupied.has(m.courtId)) occupied.set(m.courtId, 'partido en curso')
+    } else if (m.status === 'scheduled') {
+      considerNext(m.courtId, m.scheduledAt)
+    }
+  }
+
+  // Reservas y clases: ocupan si el momento actual cae dentro de su franja.
+  for (const r of reservations) {
+    const start = r.startAt.getTime()
+    const end = start + r.durationMinutes * 60_000
+    const label = r.kind === 'class' ? 'clase en curso' : 'reserva en curso'
+    if (start <= now && now < end) {
+      if (!occupied.has(r.courtId)) occupied.set(r.courtId, label)
+    } else {
+      considerNext(r.courtId, r.startAt)
     }
   }
 
@@ -206,13 +246,12 @@ export default async function ClubPage({
     if (!c.isActive) {
       status = 'closed'
       detail = 'fuera de servicio'
-    } else if (playingCourts.has(c.id)) {
+    } else if (occupied.has(c.id)) {
       status = 'playing'
-      detail = 'partido en curso'
+      detail = occupied.get(c.id)!
     } else if (nextByCourt.has(c.id)) {
       status = 'next'
-      const at = nextByCourt.get(c.id) ?? null
-      detail = at ? `próx. ${timeFmt.format(at)}` : 'partido programado'
+      detail = `próx. ${timeFmt.format(nextByCourt.get(c.id)!)}`
     } else {
       status = 'free'
       detail = 'disponible'
@@ -315,7 +354,10 @@ export default async function ClubPage({
   })
 
   const activeCompetitions = competitions.filter((c) => c.live).length
-  const foundedYear = club.createdAt.getFullYear()
+  // Año en que el club se dio de alta en Bandeja (distinto de su fundación).
+  const joinedYear = club.createdAt.getFullYear()
+  // Año de fundación real del club (lo edita en Ajustes), si lo ha indicado.
+  const foundedYear = club.foundedYear ?? null
 
   /* --- Tarifas de clases (precio por nº de jugadores) --- */
   const classRates = club.classPricing
@@ -373,7 +415,7 @@ export default async function ClubPage({
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-terracotta" />
               </span>
               <span className="underline decoration-1 underline-offset-4">
-                {liveCourts} {liveCourts === 1 ? 'pista' : 'pistas'} en juego
+                {liveCourts} {liveCourts === 1 ? 'pista ocupada' : 'pistas ocupadas'}
               </span>
             </Link>
           ) : (
@@ -391,6 +433,7 @@ export default async function ClubPage({
         name={club.name}
         city={club.city}
         address={club.address}
+        joinedYear={joinedYear}
         foundedYear={foundedYear}
         playersCount={club._count.players}
         leaguesCount={club.leagues.length}
@@ -401,6 +444,7 @@ export default async function ClubPage({
         courts={courts}
       />
       <NumberClub
+        joinedYear={joinedYear}
         foundedYear={foundedYear}
         totalCourts={club.courts.length}
         indoorCourts={indoorCourts}
@@ -424,6 +468,8 @@ export default async function ClubPage({
         name={club.name}
         city={club.city}
         address={club.address}
+        state={club.state}
+        country={club.country}
         phone={club.phone}
         email={club.email}
         website={club.website}

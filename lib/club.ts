@@ -40,7 +40,7 @@ export async function getDashboardData() {
     where: { userId: session.user.id, role: { in: ['owner', 'admin'] } },
     orderBy: { createdAt: 'asc' },
     include: {
-      club: { include: { _count: { select: { courts: true } } } },
+      club: { include: { _count: { select: { courts: true, players: true } } } },
     },
   })
 
@@ -55,6 +55,7 @@ export async function getDashboardData() {
           slug: membership.club.slug,
           city: membership.club.city,
           courtCount: membership.club._count.courts,
+          playerCount: membership.club._count.players,
           role: membership.role,
         }
       : null,

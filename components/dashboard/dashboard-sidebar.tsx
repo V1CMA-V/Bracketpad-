@@ -1,10 +1,11 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { ChevronsUpDown, ExternalLink, Plus, X } from 'lucide-react'
+import { ChevronsUpDown, ExternalLink, LogOut, Plus, X } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
+import { signOutAction } from '@/lib/actions/auth'
 import { dashboardNav, isNavItemActive } from './dashboard-nav'
 import { initials, roleLabel, useDashboard } from './dashboard-context'
 import { useSidebar } from './dashboard-sidebar-context'
@@ -154,6 +155,11 @@ export function DashboardSidebar() {
               {group.items.map((item) => {
                 const active = isNavItemActive(pathname, item.href)
                 const Icon = item.icon
+                // Badge dinámico: Jugadores muestra el conteo real del club.
+                const badge =
+                  item.href === '/dashboard/jugadores'
+                    ? club?.playerCount
+                    : item.badge
                 return (
                   <li key={item.href}>
                     <Link
@@ -176,9 +182,9 @@ export function DashboardSidebar() {
                         strokeWidth={1.5}
                       />
                       <span className="flex-1">{item.label}</span>
-                      {item.badge != null && (
+                      {badge != null && badge > 0 && (
                         <span className="rounded bg-cream/10 px-1.5 py-0.5 font-mono text-[10px] text-cream/55">
-                          {item.badge}
+                          {badge}
                         </span>
                       )}
                     </Link>
@@ -204,6 +210,16 @@ export function DashboardSidebar() {
               {roleLabel(data)}
             </span>
           </span>
+          <form action={signOutAction} className="shrink-0">
+            <button
+              type="submit"
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+              className="flex size-8 items-center justify-center rounded-md text-cream/45 transition-colors hover:bg-cream/10 hover:text-terracotta"
+            >
+              <LogOut className="size-4" strokeWidth={1.5} />
+            </button>
+          </form>
         </div>
       </div>
       </aside>

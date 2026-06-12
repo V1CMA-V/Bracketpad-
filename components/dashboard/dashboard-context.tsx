@@ -9,6 +9,7 @@ export type DashboardData = {
     slug: string
     city: string | null
     courtCount: number
+    playerCount: number
     role: string
   } | null
 }

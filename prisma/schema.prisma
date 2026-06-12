@@ -109,6 +109,9 @@ model Club {
   state       String? // estado / provincia
   postalCode  String? // código postal
   country     String? @default("México")
+  // Coordenadas para el mapa de la página pública (editable desde Ajustes):
+  latitude    Float? // latitud (WGS84)
+  longitude   Float? // longitud (WGS84)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -123,6 +126,7 @@ model Club {
   hours       ClubHours[]
   reservations CourtReservation[]
   classPricing ClubClassPricing?
+  courtRates   ClubCourtRate[]
 
   @@map("club")
 }
@@ -159,6 +163,28 @@ model ClubClassPricing {
   club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@map("club_class_pricing")
+}
+
+// Tarifas de renta de pista (juego libre). Cada regla cubre una franja horaria
+// y un conjunto de días con un precio por hora — así un club puede cobrar
+// distinto por la mañana, por la tarde o el fin de semana. Se editan en Ajustes
+// y se muestran en la página pública del club.
+model ClubCourtRate {
+  id        String   @id @default(uuid())
+  clubId    String
+  label     String? // etiqueta opcional, p.ej. "Mañana entre semana"
+  days      Int[] // días que cubre: 0=domingo … 6=sábado
+  startTime String // "HH:MM"
+  endTime   String // "HH:MM"
+  price     Decimal  @db.Decimal(10, 2) // precio por hora
+  currency  String   @default("MXN")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("club_court_rate")
 }
 
 // Horario de apertura/cierre del club por día de la semana ("HH:MM"). Define el

@@ -35,13 +35,25 @@ export default async function AjustesPage() {
     )
   }
 
-  const [hours, courtCount, pricing] = await Promise.all([
+  const [hours, courtCount, pricing, courtRateRows] = await Promise.all([
     prisma.clubHours.findMany({
       where: { clubId: club.id },
       select: { dayOfWeek: true, openTime: true, closeTime: true },
     }),
     prisma.court.count({ where: { clubId: club.id } }),
     prisma.clubClassPricing.findUnique({ where: { clubId: club.id } }),
+    prisma.clubCourtRate.findMany({
+      where: { clubId: club.id },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        label: true,
+        days: true,
+        startTime: true,
+        endTime: true,
+        price: true,
+        currency: true,
+      },
+    }),
   ])
 
   const classPricing = {
@@ -51,6 +63,16 @@ export default async function AjustesPage() {
     price4: pricing?.price4 ? Number(pricing.price4) : null,
     currency: pricing?.currency ?? 'MXN',
   }
+
+  const courtRates = courtRateRows.map((r) => ({
+    label: r.label,
+    days: r.days,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    price: Number(r.price),
+  }))
+  // La moneda es común a todas las reglas; toma la de la primera si existe.
+  const courtRateCurrency = courtRateRows[0]?.currency ?? 'MXN'
 
   return (
     <ClubSettings
@@ -70,12 +92,16 @@ export default async function AjustesPage() {
         state: club.state,
         postalCode: club.postalCode,
         country: club.country,
+        latitude: club.latitude,
+        longitude: club.longitude,
         timezone: club.timezone,
         isActive: club.isActive,
       }}
       hours={hours}
       courtCount={courtCount}
       classPricing={classPricing}
+      courtRates={courtRates}
+      courtRateCurrency={courtRateCurrency}
     />
   )
 }

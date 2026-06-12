@@ -69,6 +69,16 @@ export const clubSettingsSchema = z.object({
   state: z.string().trim().max(80, 'El estado es demasiado largo.').optional(),
   postalCode: z.string().trim().max(12, 'El código postal no es válido.').optional(),
   country: z.string().trim().max(60, 'El país es demasiado largo.').optional(),
+  latitude: z
+    .number()
+    .min(-90, 'La latitud debe estar entre -90 y 90.')
+    .max(90, 'La latitud debe estar entre -90 y 90.')
+    .optional(),
+  longitude: z
+    .number()
+    .min(-180, 'La longitud debe estar entre -180 y 180.')
+    .max(180, 'La longitud debe estar entre -180 y 180.')
+    .optional(),
   timezone: z.enum(TIMEZONES, { error: 'Zona horaria no válida.' }),
 })
 

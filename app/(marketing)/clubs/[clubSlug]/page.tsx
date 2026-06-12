@@ -66,8 +66,39 @@ async function getClub(slug: string) {
       phone: true,
       email: true,
       logoUrl: true,
+      description: true,
+      website: true,
+      instagram: true,
+      latitude: true,
+      longitude: true,
       createdAt: true,
       _count: { select: { players: true } },
+      classPricing: {
+        select: {
+          price1: true,
+          price2: true,
+          price3: true,
+          price4: true,
+          currency: true,
+        },
+      },
+      courtRates: {
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          label: true,
+          days: true,
+          startTime: true,
+          endTime: true,
+          price: true,
+          currency: true,
+        },
+      },
+      // Horario publicado del club (Ajustes › Horario). Es la fuente principal
+      // del horario público; las pistas son solo respaldo.
+      hours: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true },
+      },
       courts: {
         orderBy: { createdAt: 'asc' },
         select: {
@@ -211,16 +242,25 @@ export default async function ClubPage({
     count,
   }))
 
-  /* --- Horario agregado de las pistas --- */
-  // Por cada día: apertura más temprana y cierre más tardío entre todas las pistas.
+  /* --- Horario público del club --- */
+  // Fuente principal: el horario publicado del club (Ajustes › Horario). Si no
+  // hay ninguno, se agrega la disponibilidad de las pistas (apertura más
+  // temprana y cierre más tardío de cada día) como respaldo.
   const dayOpen = new Map<number, string>()
   const dayClose = new Map<number, string>()
-  for (const c of club.courts) {
-    for (const a of c.availability) {
-      const open = dayOpen.get(a.dayOfWeek)
-      const close = dayClose.get(a.dayOfWeek)
-      if (!open || a.openTime < open) dayOpen.set(a.dayOfWeek, a.openTime)
-      if (!close || a.closeTime > close) dayClose.set(a.dayOfWeek, a.closeTime)
+  if (club.hours.length > 0) {
+    for (const h of club.hours) {
+      dayOpen.set(h.dayOfWeek, h.openTime)
+      dayClose.set(h.dayOfWeek, h.closeTime)
+    }
+  } else {
+    for (const c of club.courts) {
+      for (const a of c.availability) {
+        const open = dayOpen.get(a.dayOfWeek)
+        const close = dayClose.get(a.dayOfWeek)
+        if (!open || a.openTime < open) dayOpen.set(a.dayOfWeek, a.openTime)
+        if (!close || a.closeTime > close) dayClose.set(a.dayOfWeek, a.closeTime)
+      }
     }
   }
   const schedule = WEEK_ORDER.filter((d) => dayOpen.has(d)).map((d) => ({
@@ -276,6 +316,30 @@ export default async function ClubPage({
 
   const activeCompetitions = competitions.filter((c) => c.live).length
   const foundedYear = club.createdAt.getFullYear()
+
+  /* --- Tarifas de clases (precio por nº de jugadores) --- */
+  const classRates = club.classPricing
+    ? [
+        { players: 1, price: club.classPricing.price1 },
+        { players: 2, price: club.classPricing.price2 },
+        { players: 3, price: club.classPricing.price3 },
+        { players: 4, price: club.classPricing.price4 },
+      ]
+        .filter((r) => r.price != null)
+        .map((r) => ({ players: r.players, price: Number(r.price) }))
+    : []
+  const classCurrency = club.classPricing?.currency ?? 'MXN'
+
+  /* --- Tarifas de renta de pista (por franja y días) --- */
+  const courtRates = club.courtRates.map((r) => ({
+    id: r.id,
+    label: r.label,
+    days: r.days,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    price: Number(r.price),
+  }))
+  const courtRateCurrency = club.courtRates[0]?.currency ?? 'MXN'
 
   return (
     <div>
@@ -362,8 +426,17 @@ export default async function ClubPage({
         address={club.address}
         phone={club.phone}
         email={club.email}
+        website={club.website}
+        instagram={club.instagram}
+        description={club.description}
+        latitude={club.latitude}
+        longitude={club.longitude}
         schedule={schedule}
         surfaces={surfaces}
+        classRates={classRates}
+        classCurrency={classCurrency}
+        courtRates={courtRates}
+        courtRateCurrency={courtRateCurrency}
         totalCourts={club.courts.length}
         playersCount={club._count.players}
       />

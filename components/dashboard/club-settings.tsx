@@ -6,6 +6,10 @@ import {
   ClassPricingSettings,
   type ClassPricingDefaults,
 } from '@/components/dashboard/class-pricing-settings'
+import {
+  CourtRateSettings,
+  type CourtRate,
+} from '@/components/dashboard/court-rate-settings'
 import { Button } from '@/components/ui/button'
 import { TIMEZONES, timezoneLabels } from '@/lib/clubs'
 import { cn } from '@/lib/utils'
@@ -39,6 +43,8 @@ export type ClubData = {
   state: string | null
   postalCode: string | null
   country: string | null
+  latitude: number | null
+  longitude: number | null
   timezone: string
   isActive: boolean
 }
@@ -51,6 +57,7 @@ type SectionId =
   | 'horario'
   | 'pistas'
   | 'clases'
+  | 'renta'
   | 'estado'
 
 type Section = {
@@ -124,10 +131,22 @@ const sections: Section[] = [
     lead: 'El tarifario de clases según el número de jugadores. Prerellena el cobro al reservar una clase con coach desde la programación.',
   },
   {
-    id: 'estado',
+    id: 'renta',
     n: '06',
+    label: 'Renta de pistas',
+    eyebrow: 'Sección 06 · Renta de pistas',
+    title: (
+      <>
+        Tarifas de <em className="italic">renta.</em>
+      </>
+    ),
+    lead: 'El precio por hora de renta de pista, por franja y día. Puedes cobrar distinto por la mañana, por la tarde o el fin de semana. Aparece en la página pública del club.',
+  },
+  {
+    id: 'estado',
+    n: '07',
     label: 'Estado del club',
-    eyebrow: 'Sección 06 · Estado del club',
+    eyebrow: 'Sección 07 · Estado del club',
     title: (
       <>
         Visibilidad y <em className="italic">cierre.</em>
@@ -185,6 +204,7 @@ function TextField({
   hint,
   prefix,
   type = 'text',
+  step,
   full,
   required,
   error,
@@ -196,6 +216,7 @@ function TextField({
   hint?: string
   prefix?: string
   type?: string
+  step?: string
   full?: boolean
   required?: boolean
   error?: string[]
@@ -226,6 +247,7 @@ function TextField({
         <input
           name={name}
           type={type}
+          step={step}
           required={required}
           className={cn(inputCls, error?.length && 'border-destructive/60')}
           defaultValue={value}
@@ -446,11 +468,15 @@ export function ClubSettings({
   hours,
   courtCount,
   classPricing,
+  courtRates,
+  courtRateCurrency,
 }: {
   club: ClubData
   hours: DayHours[]
   courtCount: number
   classPricing: ClassPricingDefaults
+  courtRates: CourtRate[]
+  courtRateCurrency: string
 }) {
   const [activeId, setActiveId] = useState<SectionId>('ficha')
   const [state, formAction, pending] = useActionState(
@@ -759,6 +785,26 @@ export function ClubSettings({
                         }))}
                         error={errors.timezone}
                       />
+                      <TextField
+                        label="Latitud"
+                        name="latitude"
+                        type="number"
+                        step="any"
+                        defaultValue={club.latitude}
+                        placeholder="Ej. 19.432608"
+                        hint="En Google Maps: clic derecho sobre el club › copia las coordenadas"
+                        error={errors.latitude}
+                      />
+                      <TextField
+                        label="Longitud"
+                        name="longitude"
+                        type="number"
+                        step="any"
+                        defaultValue={club.longitude}
+                        placeholder="Ej. -99.133209"
+                        hint="Se usará para el mapa de la página pública"
+                        error={errors.longitude}
+                      />
                     </Grid>
                   </Panel>
                 </div>
@@ -772,6 +818,14 @@ export function ClubSettings({
               {/* --- 05 · Clases (tarifario, formulario propio) --- */}
               <div className={cn(activeId !== 'clases' && 'hidden')}>
                 <ClassPricingSettings defaults={classPricing} />
+              </div>
+
+              {/* --- 06 · Renta de pistas (tarifas, formulario propio) --- */}
+              <div className={cn(activeId !== 'renta' && 'hidden')}>
+                <CourtRateSettings
+                  rates={courtRates}
+                  currency={courtRateCurrency}
+                />
               </div>
 
               {/* --- 04 · Pistas (solo lectura) --- */}
@@ -807,7 +861,7 @@ export function ClubSettings({
                 </Panel>
               </div>
 
-              {/* --- 05 · Estado del club --- */}
+              {/* --- 07 · Estado del club --- */}
               <div className={cn(activeId !== 'estado' && 'hidden')}>
                 <EstadoSection isActive={club.isActive} />
               </div>

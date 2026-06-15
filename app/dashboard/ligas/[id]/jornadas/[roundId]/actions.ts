@@ -1954,6 +1954,11 @@ export async function closeRoundAndAdvance(
     }),
   ])
 
+  // La clasificación solo cuenta jornadas cerradas: ahora que esta lo está, hay
+  // que sumar sus resultados a la tabla general (`recordMatchResult` los excluía
+  // mientras seguía abierta).
+  await recomputeStandings(round.leagueId)
+
   // Calendario de la jornada siguiente: usa los días de juego de la liga para
   // fijar la fecha del próximo día de juego (a partir de la fecha de esta
   // jornada o, si no tiene, de hoy). Esa fecha se copia a todos los partidos con

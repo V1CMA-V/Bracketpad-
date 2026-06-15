@@ -20,7 +20,15 @@ import {
 import { formatMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { compareStandings } from '@/lib/standings'
-import { Mail, MapPin, Phone, Ticket } from 'lucide-react'
+import {
+  AtSign,
+  Globe,
+  Mail,
+  MapPin,
+  Navigation,
+  Phone,
+  Ticket,
+} from 'lucide-react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -94,8 +102,14 @@ async function getLeague(clubSlug: string, leagueId: string) {
       slug: true,
       city: true,
       address: true,
+      state: true,
+      country: true,
       email: true,
       phone: true,
+      website: true,
+      instagram: true,
+      latitude: true,
+      longitude: true,
       logoUrl: true,
     },
   })
@@ -425,6 +439,27 @@ export default async function PublicLeaguePage({
 
   const statusLabel = leagueStatusLabels[league.status] ?? league.status
 
+  // Datos de contacto del club para la tarjeta «Organiza». Replican la lógica de
+  // la página pública del club: enlace «Cómo llegar» (coordenadas si las hay, si
+  // no nombre + dirección), Instagram sin la @ y web normalizada con protocolo.
+  const hasCoords = club.latitude != null && club.longitude != null
+  const mapsDestination = hasCoords
+    ? `${club.latitude},${club.longitude}`
+    : [club.name, club.address, club.city, club.state, club.country]
+        .filter(Boolean)
+        .join(', ')
+  const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+    mapsDestination,
+  )}`
+  const instagramHandle = club.instagram?.replace(/^@/, '') ?? null
+  const websiteLabel = club.website
+    ?.replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+  const websiteHref =
+    club.website && !/^https?:\/\//.test(club.website)
+      ? `https://${club.website}`
+      : club.website
+
   return (
     <div>
       {/* Breadcrumb */}
@@ -626,7 +661,51 @@ export default async function PublicLeaguePage({
                     </a>
                   </div>
                 )}
+                {websiteHref && (
+                  <div className="flex items-center gap-2 text-ink/80">
+                    <Globe
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      strokeWidth={1.5}
+                    />
+                    <a
+                      href={websiteHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate hover:text-terracotta"
+                    >
+                      {websiteLabel}
+                    </a>
+                  </div>
+                )}
+                {instagramHandle && (
+                  <div className="flex items-center gap-2 text-ink/80">
+                    <AtSign
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      strokeWidth={1.5}
+                    />
+                    <a
+                      href={`https://instagram.com/${instagramHandle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate hover:text-terracotta"
+                    >
+                      {instagramHandle}
+                    </a>
+                  </div>
+                )}
               </dl>
+
+              {(club.address || hasCoords) && (
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 flex items-center justify-center gap-2 rounded-sm border border-border bg-background py-2 font-mono text-[10px] uppercase tracking-widest text-ink transition-colors hover:border-terracotta/40 hover:text-terracotta"
+                >
+                  <Navigation className="size-3.5" strokeWidth={1.5} />
+                  Cómo llegar
+                </a>
+              )}
             </div>
 
             {/* Calendario de la temporada */}

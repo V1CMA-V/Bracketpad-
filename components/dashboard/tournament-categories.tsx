@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
-import { ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronDown, Pencil, Plus, Trash2, Users, X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -370,7 +371,13 @@ function CategoryForm({
 /*  Fila de categoría                                                         */
 /* -------------------------------------------------------------------------- */
 
-function CategoryRow({ category }: { category: CategoryItem }) {
+function CategoryRow({
+  tournamentId,
+  category,
+}: {
+  tournamentId: string
+  category: CategoryItem
+}) {
   const [editing, setEditing] = useState(false)
   const [pending, startTransition] = useTransition()
 
@@ -405,7 +412,12 @@ function CategoryRow({ category }: { category: CategoryItem }) {
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 text-sm text-foreground">
-            <span className="font-serif text-base">{category.name}</span>
+            <Link
+              href={`/dashboard/torneos/${tournamentId}/categorias/${category.id}`}
+              className="font-serif text-base underline-offset-4 hover:underline"
+            >
+              {category.name}
+            </Link>
             <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
               {categoryLabel(category.gender, category.skillLevel)}
             </span>
@@ -428,6 +440,13 @@ function CategoryRow({ category }: { category: CategoryItem }) {
         </span>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          <Link
+            href={`/dashboard/torneos/${tournamentId}/categorias/${category.id}`}
+            title="Gestionar parejas"
+            className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Users className="size-4" />
+          </Link>
           <button
             type="button"
             onClick={() => setEditing((v) => !v)}
@@ -542,7 +561,7 @@ export function TournamentCategories({
       ) : (
         <ul className="mt-5 divide-y divide-border rounded-xl border border-border">
           {categories.map((c) => (
-            <CategoryRow key={c.id} category={c} />
+            <CategoryRow key={c.id} tournamentId={tournamentId} category={c} />
           ))}
         </ul>
       )}

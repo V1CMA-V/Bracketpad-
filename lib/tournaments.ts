@@ -44,6 +44,20 @@ export const skillLevelLabels: Record<string, string> = {
   sixth: '6ta fuerza',
 }
 
+/** Estado de una pareja inscrita en una categoría. */
+export const teamStatusLabels: Record<string, string> = {
+  registered: 'Inscrita',
+  confirmed: 'Confirmada',
+  withdrawn: 'Retirada',
+}
+
+/** Color por estado de pareja para badges/puntos. */
+export const teamStatusStyles: Record<string, { text: string; dot: string }> = {
+  registered: { text: 'text-ochre', dot: 'bg-ochre' },
+  confirmed: { text: 'text-forest', dot: 'bg-forest' },
+  withdrawn: { text: 'text-muted-foreground', dot: 'bg-muted-foreground' },
+}
+
 /** Sistema de clasificación / armado del cuadro. */
 export const drawTypeLabels: Record<string, string> = {
   single_elim: 'Eliminación directa',

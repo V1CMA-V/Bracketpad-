@@ -358,6 +358,13 @@ export async function setRoundStatus(
     data: { status },
   })
 
+  // La clasificación solo cuenta los partidos de jornadas CERRADAS. Cambiar el
+  // estado decide si los resultados de esta jornada suman o no: al cerrarla hay
+  // que sumarlos y al reabrirla/despublicarla hay que restarlos. Como la tabla
+  // `LeagueStanding` solo se recalcula al registrar resultados, recalculamos
+  // aquí para que la clasificación refleje siempre lo que está cerrado.
+  await recomputeStandings(round.leagueId)
+
   revalidatePath(`/dashboard/ligas/${round.leagueId}`)
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${round.id}`)
   // Cerrar/publicar cambia lo que se ve en la página pública de la liga.

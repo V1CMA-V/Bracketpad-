@@ -3,6 +3,10 @@ import {
   TournamentTeams,
   type TeamItem,
 } from '@/components/dashboard/tournament-teams'
+import {
+  TournamentGroupGenerator,
+  type GroupData,
+} from '@/components/dashboard/tournament-group-generator'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
@@ -84,6 +88,36 @@ export default async function TorneoCategoriaPage({
   const isGroups = category.drawType === 'groups_playoff'
   const activeCount = teams.filter((t) => t.status !== 'withdrawn').length
 
+  // Grupos ya generados: agrupa las parejas activas por su `groupNumber`.
+  const groupMap = new Map<number, GroupData['teams']>()
+  for (const t of category.teams) {
+    if (t.groupNumber == null || t.status === 'withdrawn') continue
+    const label =
+      t.members.map((m) => m.player.fullName).join(' / ') || 'Pareja sin nombre'
+    const bucket = groupMap.get(t.groupNumber) ?? []
+    bucket.push({ id: t.id, label, seed: t.seed })
+    groupMap.set(t.groupNumber, bucket)
+  }
+  const groups: GroupData[] = [...groupMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([groupNumber, groupTeams]) => ({
+      groupNumber,
+      teams: groupTeams.sort(
+        (a, b) => (a.seed ?? 9999) - (b.seed ?? 9999),
+      ),
+    }))
+
+  // Parejas activas que aún no están en ningún grupo (nuevas o quitadas).
+  const unassignedTeams = category.teams
+    .filter((t) => t.status !== 'withdrawn' && t.groupNumber == null)
+    .map((t) => ({
+      id: t.id,
+      label:
+        t.members.map((m) => m.player.fullName).join(' / ') ||
+        'Pareja sin nombre',
+      seed: t.seed,
+    }))
+
   return (
     <>
       <DashboardTopbar>
@@ -129,6 +163,16 @@ export default async function TorneoCategoriaPage({
               players={clubPlayers.map((p) => ({ id: p.id, name: p.fullName }))}
               maxTeams={category.maxTeams}
             />
+
+            {isGroups && (
+              <TournamentGroupGenerator
+                categoryId={category.id}
+                activeTeamCount={activeCount}
+                groups={groups}
+                unassignedTeams={unassignedTeams}
+                advancePerGroup={category.advancePerGroup}
+              />
+            )}
           </div>
 
           {/* Columna lateral */}

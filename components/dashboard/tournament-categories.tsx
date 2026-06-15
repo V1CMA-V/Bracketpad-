@@ -56,8 +56,6 @@ type CategoryValues = {
   bestOfSets: number
   goldenPoint: boolean
   tiebreakAt: number
-  teamsPerGroup: string
-  advancePerGroup: string
   prize: string
   entryFee: string
   currency: string
@@ -72,8 +70,6 @@ const emptyValues: CategoryValues = {
   bestOfSets: 3,
   goldenPoint: true,
   tiebreakAt: 6,
-  teamsPerGroup: '',
-  advancePerGroup: '',
   prize: '',
   entryFee: '',
   currency: 'MXN',
@@ -89,8 +85,6 @@ function itemToValues(c: CategoryItem): CategoryValues {
     bestOfSets: c.bestOfSets,
     goldenPoint: c.goldenPoint,
     tiebreakAt: c.tiebreakAt,
-    teamsPerGroup: c.teamsPerGroup != null ? String(c.teamsPerGroup) : '',
-    advancePerGroup: c.advancePerGroup != null ? String(c.advancePerGroup) : '',
     prize: c.prize ?? '',
     entryFee: c.entryFee != null ? String(c.entryFee) : '',
     currency: c.currency,
@@ -138,8 +132,6 @@ function CategoryForm({
 }) {
   const [state, setState] = useState<CategoryState>(initialState)
   const [pending, startTransition] = useTransition()
-  // El tipo de cuadro controla si se piden los parámetros de grupo.
-  const [drawType, setDrawType] = useState(defaults.drawType)
   const fe = state.fieldErrors
 
   // Ejecuta la acción en una transición (no en un efecto) para cerrar el panel
@@ -151,8 +143,6 @@ function CategoryForm({
       if (res.success) onDone?.()
     })
   }
-
-  const isGroups = drawType === 'groups_playoff'
 
   return (
     <form action={onSubmit} noValidate className="space-y-5">
@@ -203,11 +193,14 @@ function CategoryForm({
             ))}
           </select>
         </Labeled>
-        <Labeled label="Sistema de clasificación" error={fe?.drawType?.[0]}>
+        <Labeled
+          label="Sistema de clasificación"
+          hint="Si eliges grupos, el tamaño de cada grupo se define al generarlos (según las parejas inscritas)."
+          error={fe?.drawType?.[0]}
+        >
           <select
             name="drawType"
-            value={drawType}
-            onChange={(e) => setDrawType(e.target.value)}
+            defaultValue={defaults.drawType}
             className={fieldCls}
           >
             {Object.entries(drawTypeLabels).map(([v, l]) => (
@@ -218,44 +211,6 @@ function CategoryForm({
           </select>
         </Labeled>
       </div>
-
-      {/* Fase de grupos (condicional) */}
-      {isGroups && (
-        <div className="grid gap-4 rounded-lg border border-dashed border-border bg-card/50 p-4 sm:grid-cols-2">
-          <Labeled
-            label="Parejas por grupo"
-            hint="Cuántas parejas integran cada grupo."
-            error={fe?.teamsPerGroup?.[0]}
-          >
-            <input
-              name="teamsPerGroup"
-              type="number"
-              min={3}
-              max={16}
-              defaultValue={defaults.teamsPerGroup}
-              placeholder="Ej. 4"
-              className={fieldCls}
-              aria-invalid={!!fe?.teamsPerGroup}
-            />
-          </Labeled>
-          <Labeled
-            label="Avanzan por grupo"
-            hint="Cuántas parejas pasan a la eliminatoria."
-            error={fe?.advancePerGroup?.[0]}
-          >
-            <input
-              name="advancePerGroup"
-              type="number"
-              min={1}
-              max={8}
-              defaultValue={defaults.advancePerGroup}
-              placeholder="Ej. 2"
-              className={fieldCls}
-              aria-invalid={!!fe?.advancePerGroup}
-            />
-          </Labeled>
-        </div>
-      )}
 
       {/* Reglas de juego */}
       <div className="grid gap-4 sm:grid-cols-3">

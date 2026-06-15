@@ -3,9 +3,17 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
+import { Prisma } from '@/generated/client'
+
 import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
 import { registerTeamSchema } from '@/lib/validations/team'
+import {
+  clamp,
+  maxGroupCount,
+  roundRobinPairs,
+  snakeGroupNumber,
+} from '@/lib/tournament-groups'
 
 export type TeamState = {
   success?: boolean
@@ -34,7 +42,13 @@ async function findOwnedCategory(categoryId: string) {
   if (!club) return null
   const category = await prisma.tournamentCategory.findFirst({
     where: { id: categoryId, clubId: club.id },
-    select: { id: true, tournamentId: true, clubId: true, maxTeams: true },
+    select: {
+      id: true,
+      tournamentId: true,
+      clubId: true,
+      maxTeams: true,
+      drawType: true,
+    },
   })
   return category ? { category, club } : null
 }
@@ -120,7 +134,14 @@ async function findOwnedTeam(teamId: string) {
   if (!club) return null
   return prisma.tournamentTeam.findFirst({
     where: { id: teamId, clubId: club.id },
-    select: { id: true, categoryId: true, category: { select: { tournamentId: true } } },
+    select: {
+      id: true,
+      categoryId: true,
+      clubId: true,
+      groupNumber: true,
+      status: true,
+      category: { select: { tournamentId: true } },
+    },
   })
 }
 
@@ -141,4 +162,259 @@ export async function removeTeam(teamId: string) {
   // Al borrar la pareja se borran en cascada sus integrantes (members).
   await prisma.tournamentTeam.delete({ where: { id: team.id } })
   revalidateCategory(team.category.tournamentId, team.categoryId)
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Fase de grupos                                                            */
+/* -------------------------------------------------------------------------- */
+
+export type GroupState = { success?: boolean; error?: string }
+
+/**
+ * Genera la fase de grupos de la categoría: reparte las parejas activas (no
+ * retiradas) en `numGroups` grupos por siembra serpenteante, guarda el tamaño
+ * y cuántas avanzan, y crea todos los partidos round-robin de cada grupo.
+ */
+export async function generateGroups(
+  categoryId: string,
+  input: { numGroups: number; advancePerGroup: number },
+): Promise<GroupState> {
+  const owned = await findOwnedCategory(categoryId)
+  if (!owned) return { error: 'Categoría no encontrada.' }
+  const { category } = owned
+
+  if (category.drawType !== 'groups_playoff') {
+    return { error: 'Esta categoría no usa fase de grupos.' }
+  }
+
+  // Si ya hay grupos generados, hay que borrarlos antes de regenerar.
+  const existing = await prisma.match.count({
+    where: { categoryId, groupNumber: { not: null } },
+  })
+  if (existing > 0) {
+    return { error: 'Ya hay grupos generados. Bórralos antes de regenerar.' }
+  }
+
+  // Parejas que entran al sorteo: no retiradas, ordenadas por cabeza de serie.
+  const teams = await prisma.tournamentTeam.findMany({
+    where: { categoryId, status: { not: 'withdrawn' } },
+    orderBy: [{ seed: 'asc' }, { createdAt: 'asc' }],
+    select: { id: true },
+  })
+  if (teams.length < 2) {
+    return { error: 'Se necesitan al menos 2 parejas activas para generar grupos.' }
+  }
+
+  const numGroups = clamp(
+    Math.round(input.numGroups),
+    1,
+    maxGroupCount(teams.length),
+  )
+
+  // Reparto serpenteante: cada pareja recibe su nº de grupo según su posición.
+  const buckets = new Map<number, string[]>()
+  teams.forEach((t, k) => {
+    const g = snakeGroupNumber(k, numGroups)
+    const bucket = buckets.get(g) ?? []
+    bucket.push(t.id)
+    buckets.set(g, bucket)
+  })
+
+  const maxSize = Math.max(...[...buckets.values()].map((b) => b.length))
+  const advancePerGroup = clamp(Math.round(input.advancePerGroup), 1, maxSize)
+
+  await prisma.$transaction(async (tx) => {
+    // Asigna el grupo a cada pareja.
+    for (const [g, ids] of buckets) {
+      await tx.tournamentTeam.updateMany({
+        where: { id: { in: ids } },
+        data: { groupNumber: g },
+      })
+      // Partidos round-robin del grupo.
+      const pairs = roundRobinPairs(ids.length)
+      for (const [i, j] of pairs) {
+        await tx.match.create({
+          data: {
+            clubId: category.clubId,
+            contextType: 'tournament',
+            categoryId,
+            groupNumber: g,
+            status: 'scheduled',
+            sides: {
+              create: [
+                { side: 'A', teamId: ids[i] },
+                { side: 'B', teamId: ids[j] },
+              ],
+            },
+          },
+        })
+      }
+    }
+    await tx.tournamentCategory.update({
+      where: { id: categoryId },
+      data: { teamsPerGroup: maxSize, advancePerGroup },
+    })
+  })
+
+  revalidateCategory(category.tournamentId, categoryId)
+  return { success: true }
+}
+
+/** Borra la fase de grupos (partidos + asignaciones) para poder regenerarla. */
+export async function clearGroups(categoryId: string): Promise<GroupState> {
+  const owned = await findOwnedCategory(categoryId)
+  if (!owned) return { error: 'Categoría no encontrada.' }
+  const { category } = owned
+
+  // No se borran grupos si ya hay partidos con resultado para no perder datos.
+  const finished = await prisma.match.count({
+    where: { categoryId, groupNumber: { not: null }, status: 'finished' },
+  })
+  if (finished > 0) {
+    return {
+      error:
+        'Hay partidos de grupo con resultado registrado; no se pueden borrar los grupos.',
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.match.deleteMany({
+      where: { categoryId, groupNumber: { not: null } },
+    }),
+    prisma.tournamentTeam.updateMany({
+      where: { categoryId },
+      data: { groupNumber: null },
+    }),
+    prisma.tournamentCategory.update({
+      where: { id: categoryId },
+      data: { teamsPerGroup: null, advancePerGroup: null },
+    }),
+  ])
+
+  revalidateCategory(category.tournamentId, categoryId)
+  return { success: true }
+}
+
+/**
+ * Recalcula `teamsPerGroup` (tamaño del grupo más grande) tras un cambio manual
+ * de composición. Si ya no queda ninguna pareja agrupada, deja la categoría
+ * como «sin generar» (ambos campos nulos). Se ejecuta dentro de la transacción.
+ */
+async function syncGroupSizes(
+  tx: Prisma.TransactionClient,
+  categoryId: string,
+) {
+  const grouped = await tx.tournamentTeam.findMany({
+    where: { categoryId, groupNumber: { not: null }, status: { not: 'withdrawn' } },
+    select: { groupNumber: true },
+  })
+  if (grouped.length === 0) {
+    await tx.tournamentCategory.update({
+      where: { id: categoryId },
+      data: { teamsPerGroup: null, advancePerGroup: null },
+    })
+    return
+  }
+  const sizes = new Map<number, number>()
+  for (const t of grouped) {
+    const g = t.groupNumber as number
+    sizes.set(g, (sizes.get(g) ?? 0) + 1)
+  }
+  await tx.tournamentCategory.update({
+    where: { id: categoryId },
+    data: { teamsPerGroup: Math.max(...sizes.values()) },
+  })
+}
+
+/**
+ * Mueve una pareja a otro grupo, la quita (target = null) o la asigna a un grupo
+ * (incluido uno nuevo). Recomputa los partidos round-robin afectados: borra los
+ * de la pareja en su grupo actual y crea los suyos en el grupo destino contra
+ * las parejas que ya están ahí. Se niega si la pareja ya jugó algún partido de
+ * grupo con resultado, para no perder datos.
+ */
+export async function setTeamGroup(
+  teamId: string,
+  target: number | null,
+): Promise<GroupState> {
+  const team = await findOwnedTeam(teamId)
+  if (!team) return { error: 'Pareja no encontrada.' }
+
+  const targetGroup =
+    target == null ? null : clamp(Math.round(target), 1, 99)
+
+  if (targetGroup === team.groupNumber) return { success: true }
+
+  if (team.status === 'withdrawn') {
+    return { error: 'La pareja está retirada; reactívala antes de agruparla.' }
+  }
+
+  // Guarda: no mover si la pareja ya tiene un partido de grupo con resultado.
+  const finished = await prisma.match.count({
+    where: {
+      categoryId: team.categoryId,
+      groupNumber: { not: null },
+      status: 'finished',
+      sides: { some: { teamId } },
+    },
+  })
+  if (finished > 0) {
+    return {
+      error:
+        'Esta pareja ya jugó un partido de grupo con resultado; no se puede mover.',
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // 1) Borra los partidos de la pareja en su grupo actual.
+    if (team.groupNumber != null) {
+      await tx.match.deleteMany({
+        where: {
+          categoryId: team.categoryId,
+          groupNumber: team.groupNumber,
+          sides: { some: { teamId } },
+        },
+      })
+    }
+
+    // 2) En el grupo destino, crea un partido contra cada pareja ya presente.
+    if (targetGroup != null) {
+      const opponents = await tx.tournamentTeam.findMany({
+        where: {
+          categoryId: team.categoryId,
+          groupNumber: targetGroup,
+          status: { not: 'withdrawn' },
+          id: { not: teamId },
+        },
+        select: { id: true },
+      })
+      for (const opp of opponents) {
+        await tx.match.create({
+          data: {
+            clubId: team.clubId,
+            contextType: 'tournament',
+            categoryId: team.categoryId,
+            groupNumber: targetGroup,
+            status: 'scheduled',
+            sides: {
+              create: [
+                { side: 'A', teamId },
+                { side: 'B', teamId: opp.id },
+              ],
+            },
+          },
+        })
+      }
+    }
+
+    // 3) Reasigna la pareja y recalcula los tamaños de grupo.
+    await tx.tournamentTeam.update({
+      where: { id: teamId },
+      data: { groupNumber: targetGroup },
+    })
+    await syncGroupSizes(tx, team.categoryId)
+  })
+
+  revalidateCategory(team.category.tournamentId, team.categoryId)
+  return { success: true }
 }

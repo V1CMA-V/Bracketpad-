@@ -587,6 +587,10 @@ model TournamentTeam {
   name       String?
   seed       Int?
   status     TeamStatus @default(registered)
+  // Grupo asignado en la fase de grupos (1 = primer grupo). Null hasta que se
+  // generan los grupos; se reparte por siembra serpenteante según el cabeza de
+  // serie. Al borrar/regenerar los grupos vuelve a null.
+  groupNumber Int?      @db.SmallInt
   createdAt  DateTime   @default(now())
 
   category TournamentCategory     @relation(fields: [categoryId], references: [id], onDelete: Cascade)

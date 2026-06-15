@@ -77,17 +77,9 @@ export const categorySchema = z.object({
     .min(1, 'Mínimo 1 juego.')
     .max(20, 'Máximo 20 juegos.')
     .default(6),
-  // Fase de grupos (solo se guardan cuando drawType = groups_playoff).
-  teamsPerGroup: optionalInt({
-    min: 3,
-    max: 16,
-    msg: 'Entre 3 y 16 parejas por grupo.',
-  }),
-  advancePerGroup: optionalInt({
-    min: 1,
-    max: 8,
-    msg: 'Entre 1 y 8 parejas avanzan por grupo.',
-  }),
+  // Nota: `teamsPerGroup` / `advancePerGroup` NO se piden aquí. Dependen de
+  // cuántas parejas terminan inscritas, así que se definen en la fase de
+  // generación de grupos (el sistema recomienda el tamaño para grupos parejos).
   prize: z.string().trim().max(1000, 'El premio es demasiado largo.').optional(),
   entryFee: optionalFee,
   currency,

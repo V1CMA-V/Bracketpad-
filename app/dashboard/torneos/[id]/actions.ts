@@ -24,8 +24,6 @@ type CategoryFieldErrors = Partial<
     | 'maxTeams'
     | 'bestOfSets'
     | 'tiebreakAt'
-    | 'teamsPerGroup'
-    | 'advancePerGroup'
     | 'prize'
     | 'entryFee'
     | 'currency',
@@ -69,8 +67,6 @@ function parseCategory(formData: FormData) {
     bestOfSets: (formData.get('bestOfSets') as string) || undefined,
     goldenPoint: formData.get('goldenPoint') === 'on',
     tiebreakAt: (formData.get('tiebreakAt') as string) || undefined,
-    teamsPerGroup: (formData.get('teamsPerGroup') as string) || undefined,
-    advancePerGroup: (formData.get('advancePerGroup') as string) || undefined,
     prize: (formData.get('prize') as string) || undefined,
     entryFee: (formData.get('entryFee') as string) || undefined,
     currency: formData.get('currency'),
@@ -106,9 +102,6 @@ export async function createCategory(
   }
   const data = parsed.data
 
-  // Los parámetros de grupo solo tienen sentido en «Grupos + eliminatoria».
-  const isGroups = data.drawType === 'groups_playoff'
-
   const duplicate = await prisma.tournamentCategory.findUnique({
     where: { tournamentId_name: { tournamentId, name: data.name } },
     select: { id: true },
@@ -129,8 +122,8 @@ export async function createCategory(
       bestOfSets: data.bestOfSets,
       goldenPoint: data.goldenPoint,
       tiebreakAt: data.tiebreakAt,
-      teamsPerGroup: isGroups ? (data.teamsPerGroup ?? null) : null,
-      advancePerGroup: isGroups ? (data.advancePerGroup ?? null) : null,
+      // teamsPerGroup / advancePerGroup quedan nulos: se definen al generar los
+      // grupos, según las parejas inscritas.
       prize: data.prize ?? null,
       entryFee: data.entryFee ?? null,
       currency: data.currency,
@@ -160,7 +153,6 @@ export async function updateCategory(
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors }
   }
   const data = parsed.data
-  const isGroups = data.drawType === 'groups_playoff'
 
   // Otra categoría del mismo torneo no puede tener este nombre.
   const duplicate = await prisma.tournamentCategory.findUnique({
@@ -184,8 +176,8 @@ export async function updateCategory(
       bestOfSets: data.bestOfSets,
       goldenPoint: data.goldenPoint,
       tiebreakAt: data.tiebreakAt,
-      teamsPerGroup: isGroups ? (data.teamsPerGroup ?? null) : null,
-      advancePerGroup: isGroups ? (data.advancePerGroup ?? null) : null,
+      // No se tocan teamsPerGroup / advancePerGroup: los gestiona la fase de
+      // generación de grupos, así que editar la categoría los conserva.
       prize: data.prize ?? null,
       entryFee: data.entryFee ?? null,
       currency: data.currency,

@@ -709,7 +709,18 @@ function PairGroupCard({
     rankingBy === 'games' ? s.gamesFor - s.gamesAgainst : s.setsWon
   const allStats = [...stats.values()]
   const hasAbsent = allStats.some((s) => s.isAbsent)
-  // Orden: primero las parejas presentes por puntuación; las ausentes al final.
+  // Puesto en la clasificación general de cada pareja (1 = mejor), tomado de
+  // cualquiera de sus jugadores, para decidir qué ausente desciende cuando varias
+  // faltan en el mismo grupo.
+  const overallRankOfStat = (s: Stat): number => {
+    for (const id of teams.get(s.key)?.playerIds ?? []) {
+      const r = memberByPlayer.get(id)?.overallRank
+      if (r != null) return r
+    }
+    return Number.POSITIVE_INFINITY
+  }
+  // Orden: primero las parejas presentes por puntuación; las ausentes al final,
+  // ordenadas por clasificación general (peor abajo → es quien desciende).
   const rankedStats = [
     ...allStats
       .filter((s) => !s.isAbsent)
@@ -719,17 +730,28 @@ function PairGroupCard({
           b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
           a.label.localeCompare(b.label),
       ),
-    ...allStats.filter((s) => s.isAbsent),
+    ...allStats
+      .filter((s) => s.isAbsent)
+      .sort((a, b) => overallRankOfStat(a) - overallRankOfStat(b)),
   ]
   const presentCount = allStats.filter((s) => !s.isAbsent).length
+  // De las parejas ausentes, solo desciende la peor clasificada en la liga; el
+  // resto mantiene su grupo aunque pierdan la jornada.
+  const absentDescenderKey = allStats.some((s) => s.isAbsent)
+    ? [...allStats.filter((s) => s.isAbsent)].sort(
+        (a, b) => overallRankOfStat(b) - overallRankOfStat(a),
+      )[0].key
+    : null
 
   // Ascenso/descenso de parejas: el grupo más alto no sube, el más bajo no baja.
-  // La mejor pareja del grupo sube; la peor baja, salvo que haya una ausente, que
-  // ocupa el descenso. Empates resueltos por el orden de la tabla.
+  // La mejor pareja del grupo sube; la peor baja, salvo que haya ausentes, que
+  // ocupan el descenso (solo la peor clasificada de ellas). Empates de presentes
+  // resueltos por el orden de la tabla.
   const isHighest = group.groupNumber === 1
   const isLowest = group.groupNumber >= maxGroupNumber
   const movementOf = (s: Stat, i: number): 'up' | 'down' | 'stay' => {
-    if (s.isAbsent) return isLowest ? 'stay' : 'down'
+    if (s.isAbsent)
+      return !isLowest && s.key === absentDescenderKey ? 'down' : 'stay'
     if (i === 0 && !isHighest && presentCount > 0) return 'up'
     if (i === presentCount - 1 && !isLowest && !hasAbsent) return 'down'
     return 'stay'
@@ -894,9 +916,10 @@ function PairGroupCard({
             ))}
           </div>
           <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-            «No llegó» hace que la pareja pierda la jornada (último del grupo,
-            desciende). La pareja suplente cubre los partidos, pero sus puntos no
-            cuentan.
+            «No llegó» hace que la pareja pierda la jornada (último del grupo).
+            Si faltan varias, solo desciende la peor clasificada de la liga; el
+            resto mantiene su grupo. La pareja suplente cubre los partidos, pero
+            sus puntos no cuentan.
           </p>
         </div>
       ) : null}

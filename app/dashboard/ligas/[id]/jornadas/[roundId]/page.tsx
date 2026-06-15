@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
 import { teamLabel } from '@/lib/leagues'
+import { compareStandings } from '@/lib/standings'
 
 // Formatea la fecha de la jornada (`scheduledDate`, `@db.Date`): se guarda como
 // medianoche UTC, así que se formatea en UTC para no mostrar un día antes en
@@ -90,7 +91,7 @@ export default async function JornadaDetailPage({
   })
   if (!round) notFound()
 
-  const [registrations, courts, matches, slots] = await Promise.all([
+  const [registrations, courts, matches, slots, standings] = await Promise.all([
     prisma.leagueRegistration.findMany({
       where: { leagueId: id, status: 'active' },
       orderBy: { player: { fullName: 'asc' } },
@@ -141,7 +142,46 @@ export default async function JornadaDetailPage({
         },
       },
     }),
+    // Clasificación general de la liga: desempata qué ausente desciende cuando
+    // varios faltan en el mismo grupo (solo baja el peor clasificado).
+    prisma.leagueStanding.findMany({
+      where: { leagueId: id },
+      select: {
+        registrationId: true,
+        wins: true,
+        losses: true,
+        setsFor: true,
+        setsAgainst: true,
+        gamesFor: true,
+        gamesAgainst: true,
+      },
+    }),
   ])
+
+  // Puesto en la clasificación general por inscripción (1 = mejor), con el mismo
+  // criterio que el cierre de jornada (compareStandings + desempate estable por
+  // id) para que la vista y el servidor coincidan en quién desciende.
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+  const zeroStanding = {
+    wins: 0,
+    losses: 0,
+    setsFor: 0,
+    setsAgainst: 0,
+    gamesFor: 0,
+    gamesAgainst: 0,
+  }
+  const standingByReg = new Map(standings.map((s) => [s.registrationId, s]))
+  const overallRankByReg = new Map<string, number>()
+  ;[...registrations]
+    .sort(
+      (a, b) =>
+        compareStandings(
+          standingByReg.get(a.id) ?? zeroStanding,
+          standingByReg.get(b.id) ?? zeroStanding,
+          rankingBy,
+        ) || a.id.localeCompare(b.id),
+    )
+    .forEach((r, i) => overallRankByReg.set(r.id, i + 1))
 
   const players = registrations.map((r) => ({
     id: r.player.id,
@@ -191,6 +231,8 @@ export default async function JornadaDetailPage({
           attendance: s.attendance,
           substituteName: s.substituteName,
           manualMovement: s.manualMovement,
+          overallRank:
+            overallRankByReg.get(s.registrationId) ?? Number.MAX_SAFE_INTEGER,
         })
         map.set(s.groupNumber, list)
         return map
@@ -201,7 +243,6 @@ export default async function JornadaDetailPage({
     .map(([groupNumber, members]) => ({ groupNumber, members }))
 
   const bestOfSets = round.league.scoringConfig?.bestOfSets ?? 3
-  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
   const noShowGamesAgainst =
     round.league.scoringConfig?.noShowGamesAgainst ?? 9
   const roundLabel = round.name ?? `Jornada ${round.roundNumber}`

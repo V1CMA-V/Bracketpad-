@@ -116,6 +116,12 @@ export type GroupRoster = {
     substituteName: string | null
     /** Decisión manual de empate (sube/baja) si el organizador ya la fijó. */
     manualMovement: Movement | null
+    /**
+     * Puesto en la clasificación general de la liga (1 = mejor). Desempata qué
+     * ausente desciende cuando varios faltan en el mismo grupo: solo baja el
+     * peor clasificado; el resto mantiene su grupo aunque pierdan la jornada.
+     */
+    overallRank: number
   }[]
 }
 
@@ -1328,13 +1334,24 @@ function GroupCard({
   const presentStats = stats.filter((s) => !s.isAbsent)
   const absentStats = stats.filter((s) => s.isAbsent)
   const hasAbsent = absentStats.length > 0
-  // Orden de visualización: por puntuación y, a igualdad, por nombre (estable).
+  // Puesto en la clasificación general de cada jugador (1 = mejor), para decidir
+  // qué ausente desciende cuando varios faltan en el mismo grupo.
+  const overallRankOf = (s: GroupStat) =>
+    memberByPlayer.get(s.id)?.overallRank ?? Number.POSITIVE_INFINITY
+  // Orden de visualización: presentes por puntuación (y nombre); ausentes al
+  // final, ordenados por clasificación general (peor abajo → es quien desciende).
   const rankedStats = [
     ...[...presentStats].sort(
       (a, b) => scoreOf(b) - scoreOf(a) || a.name.localeCompare(b.name),
     ),
-    ...absentStats,
+    ...[...absentStats].sort((a, b) => overallRankOf(a) - overallRankOf(b)),
   ]
+  // De los ausentes, solo desciende el peor clasificado en la liga; el resto
+  // mantiene su grupo aunque pierdan la jornada. (Coincide con el cierre de
+  // jornada en el servidor.)
+  const absentDescenderId = absentStats.length
+    ? [...absentStats].sort((a, b) => overallRankOf(b) - overallRankOf(a))[0].id
+    : null
 
   const isHighest = group.groupNumber === 1
   const isLowest = group.groupNumber >= maxGroupNumber
@@ -1366,7 +1383,10 @@ function GroupCard({
 
   // Movimiento mostrado por jugador. 'tie' = empate pendiente de decidir.
   const movementOf = (s: GroupStat): 'up' | 'down' | 'stay' | 'tie' => {
-    if (s.isAbsent) return isLowest ? 'stay' : 'down'
+    // Ausente: pierde la jornada, pero solo desciende el peor clasificado de
+    // entre los ausentes del grupo; los demás mantienen su grupo.
+    if (s.isAbsent)
+      return !isLowest && s.id === absentDescenderId ? 'down' : 'stay'
     if (!isHighest) {
       if (upTie) {
         if (resolvedUpId === s.id) return 'up'
@@ -1580,8 +1600,10 @@ function GroupCard({
             ))}
           </div>
           <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-            «No llegó» hace que el jugador pierda la jornada (último del grupo,
-            desciende). El suplente cubre el partido, pero sus puntos no cuentan.
+            «No llegó» hace que el jugador pierda la jornada (último del grupo).
+            Si faltan varios, solo desciende el peor clasificado de la liga; el
+            resto mantiene su grupo. El suplente cubre el partido, pero sus puntos
+            no cuentan.
           </p>
         </div>
       ) : null}

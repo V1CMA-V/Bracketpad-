@@ -1786,8 +1786,46 @@ export async function closeRoundAndAdvance(
   // Grupos con empate por el ascenso/descenso que el organizador aún no resolvió.
   const unresolved: string[] = []
 
+  // Clasificación general acumulada (solo jornadas cerradas): se usa para ordenar
+  // los nuevos grupos (siembra) y para desempatar qué ausente desciende cuando
+  // varios faltan en el mismo grupo.
+  const standings = await prisma.leagueStanding.findMany({
+    where: { leagueId: round.leagueId },
+    select: {
+      registrationId: true,
+      wins: true,
+      losses: true,
+      setsFor: true,
+      setsAgainst: true,
+      gamesFor: true,
+      gamesAgainst: true,
+    },
+  })
+  const standMap = new Map(standings.map((s) => [s.registrationId, s]))
+  const zero = {
+    wins: 0,
+    losses: 0,
+    setsFor: 0,
+    setsAgainst: 0,
+    gamesFor: 0,
+    gamesAgainst: 0,
+  }
+  // Peor clasificado (clasificación general) de un conjunto de inscripciones, con
+  // desempate estable por id para que sea determinista y coincida con la vista.
+  const worstByStandings = (regIds: string[]): string | null => {
+    if (regIds.length === 0) return null
+    return [...regIds].sort(
+      (a, b) =>
+        compareStandings(
+          standMap.get(a) ?? zero,
+          standMap.get(b) ?? zero,
+          rankingBy,
+        ) || a.localeCompare(b),
+    )[regIds.length - 1]
+  }
+
   for (const [groupNumber, members] of byGroup) {
-    const { present, upCandidates, downCandidates } = groupBoundaries(
+    const { present, hasAbsent, upCandidates, downCandidates } = groupBoundaries(
       members,
       groupNumber,
       maxGroup,
@@ -1831,8 +1869,21 @@ export async function closeRoundAndAdvance(
     // todos para un único aviso al final.
     if (groupUnresolved) continue
 
+    // Con ausentes, el descenso lo ocupa SOLO el peor clasificado de la liga
+    // entre quienes faltaron (no todos). El resto mantiene su grupo aunque pierda
+    // la jornada. No se aplica en el grupo más bajo (de ahí no se desciende).
+    const absentDownReg =
+      hasAbsent && groupNumber < maxGroup
+        ? worstByStandings(
+            members
+              .filter((m) => absent.has(m.playerId))
+              .map((m) => m.registrationId),
+          )
+        : null
+
     // Orden del grupo: el que sube primero, el resto por puntuación, el que baja
-    // al final y los ausentes después (pierden la jornada).
+    // al final y los ausentes después (pierden la jornada), ordenados por
+    // clasificación general para que el que desciende quede el último.
     const upM = upReg
       ? members.find((m) => m.registrationId === upReg)
       : undefined
@@ -1842,7 +1893,16 @@ export async function closeRoundAndAdvance(
     const middle = present
       .filter((m) => m !== upM && m !== downM)
       .sort((x, y) => score(y) - score(x))
-    const missing = members.filter((m) => absent.has(m.playerId))
+    const missing = members
+      .filter((m) => absent.has(m.playerId))
+      .sort(
+        (x, y) =>
+          compareStandings(
+            standMap.get(x.registrationId) ?? zero,
+            standMap.get(y.registrationId) ?? zero,
+            rankingBy,
+          ) || x.registrationId.localeCompare(y.registrationId),
+      )
     const ordered = [
       ...(upM ? [upM] : []),
       ...middle,
@@ -1853,8 +1913,9 @@ export async function closeRoundAndAdvance(
       const isAbsent = absent.has(mem.playerId)
       let movement: 'up' | 'down' | 'stay' = 'stay'
       if (isAbsent) {
-        // Pierde la jornada: desciende salvo que ya esté en el grupo más bajo.
-        if (groupNumber < maxGroup) movement = 'down'
+        // Pierde la jornada, pero solo desciende el peor clasificado de la liga
+        // entre los ausentes; el resto mantiene su grupo.
+        if (mem.registrationId === absentDownReg) movement = 'down'
       } else if (mem.registrationId === upReg) movement = 'up'
       else if (mem.registrationId === downReg) movement = 'down'
       const newGroup =
@@ -1887,29 +1948,8 @@ export async function closeRoundAndAdvance(
     }
   }
 
-  // Orden dentro de cada nuevo grupo: por clasificación acumulada (siembra).
-  const standings = await prisma.leagueStanding.findMany({
-    where: { leagueId: round.leagueId },
-    select: {
-      registrationId: true,
-      wins: true,
-      losses: true,
-      setsFor: true,
-      setsAgainst: true,
-      gamesFor: true,
-      gamesAgainst: true,
-    },
-  })
-  const standMap = new Map(standings.map((s) => [s.registrationId, s]))
-  const zero = {
-    wins: 0,
-    losses: 0,
-    setsFor: 0,
-    setsAgainst: 0,
-    gamesFor: 0,
-    gamesAgainst: 0,
-  }
-
+  // Orden dentro de cada nuevo grupo: por clasificación acumulada (siembra),
+  // usando la clasificación general ya cargada arriba (standMap).
   const nextByGroup = new Map<number, NextMember[]>()
   for (const nm of nextMembers) {
     const list = nextByGroup.get(nm.newGroup) ?? []

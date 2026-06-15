@@ -5,8 +5,13 @@ import { cn } from '@/lib/utils'
 import { auth } from '@/auth'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
-import { DEFAULT_MATCH_MINUTES } from '@/lib/league-rules'
+import { DEFAULT_MATCH_MINUTES, leagueStaggerSlot } from '@/lib/league-rules'
 import { leagueFormatLabels } from '@/lib/leagues'
+import {
+  formatDuration,
+  paymentStatusLabels,
+  type ReservationPaymentStatus,
+} from '@/lib/reservations'
 import { ChevronRight, Plus } from 'lucide-react'
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
@@ -145,6 +150,166 @@ function StatusPill({ status }: { status: PillStatus }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Programación de pistas (mismo tema que /dashboard/programacion)            */
+/* -------------------------------------------------------------------------- */
+
+type SlotState =
+  | 'en-juego'
+  | 'proximo'
+  | 'disputado'
+  | 'conflicto'
+  | 'reserva'
+  | 'clase'
+
+type ScheduledMatch = {
+  id: string
+  kind: 'match' | 'reserva'
+  start: number // hora decimal (16.25 = 16:15)
+  duration: number
+  subtitle?: string
+  tag: string
+  label: string
+  timeLabel: string
+  state: SlotState
+  // Reparto horizontal cuando varios eventos chocan en la misma pista y hora.
+  lane: number
+  lanes: number
+  href?: string
+  title: string
+}
+
+const surfaceLabels: Record<string, string> = {
+  artificial_grass: 'Césped',
+  concrete: 'Hormigón',
+  synthetic: 'Sintética',
+  glass: 'Cristal',
+}
+
+const stateFromStatus: Record<string, SlotState> = {
+  in_progress: 'en-juego',
+  scheduled: 'proximo',
+  finished: 'disputado',
+  walkover: 'disputado',
+  suspended: 'disputado',
+  cancelled: 'disputado',
+}
+
+const toneByState: Record<SlotState, string> = {
+  'en-juego': 'bg-forest text-cream',
+  proximo: 'bg-ochre text-ink',
+  // Reservas (uso privado del club) en oscuro; clases con coach en ciruela.
+  reserva: 'bg-ink text-cream',
+  clase: 'bg-plum text-cream',
+  disputado: 'border border-border bg-muted/60 text-muted-foreground',
+  conflicto: 'bg-terracotta text-cream',
+}
+
+const scheduleLegend: { label: string; cls: string }[] = [
+  { label: 'En juego', cls: 'bg-forest' },
+  { label: 'Próximo', cls: 'bg-ochre' },
+  { label: 'Reserva', cls: 'bg-ink' },
+  { label: 'Clase', cls: 'bg-plum' },
+  { label: 'Disputado', cls: 'bg-muted border border-border' },
+  { label: 'Conflicto', cls: 'bg-terracotta' },
+]
+
+type MatchContextInput = {
+  leagueId: string | null
+  categoryId: string | null
+  groupNumber: number | null
+  bracketRound: string | null
+  league: { name: string } | null
+  leagueRound: { roundNumber: number } | null
+  category: { name: string } | null
+}
+
+/** Etiquetas de un partido: subtítulo (competición), tag (grupo/ronda) y texto completo. */
+function matchContext(m: MatchContextInput): {
+  subtitle?: string
+  tag: string
+  full: string
+} {
+  if (m.leagueId) {
+    const subtitle = m.league?.name ?? 'Liga'
+    const tag =
+      m.groupNumber != null
+        ? `G${m.groupNumber}`
+        : m.leagueRound
+          ? `J${m.leagueRound.roundNumber}`
+          : 'Liga'
+    const parts = [subtitle]
+    if (m.groupNumber != null) parts.push(`Grupo ${m.groupNumber}`)
+    if (m.leagueRound) parts.push(`Jornada ${m.leagueRound.roundNumber}`)
+    return { subtitle, tag, full: parts.join(' · ') }
+  }
+  if (m.categoryId) {
+    const subtitle = m.category?.name ?? 'Torneo'
+    const tag = m.bracketRound ?? subtitle
+    return {
+      subtitle,
+      tag,
+      full: m.bracketRound ? `${subtitle} · ${m.bracketRound}` : subtitle,
+    }
+  }
+  return { tag: 'Partido', full: 'Partido' }
+}
+
+function MatchBlock({
+  match,
+  windowStart,
+  windowHours,
+}: {
+  match: ScheduledMatch
+  windowStart: number
+  windowHours: number
+}) {
+  const baseLeft = ((match.start - windowStart) / windowHours) * 100
+  const slotWidth = Math.min((match.duration / windowHours) * 100, 100 - baseLeft)
+  // Si hay conflicto, el slot se divide entre los eventos coincidentes.
+  const width = slotWidth / match.lanes
+  const left = baseLeft + match.lane * width
+  const inner = (
+    <div
+      className={cn(
+        'relative flex h-full flex-col justify-center gap-0.5 overflow-hidden rounded-md px-2 py-1 transition-shadow',
+        toneByState[match.state],
+        match.href && 'hover:ring-2 hover:ring-foreground/20',
+      )}
+    >
+      {match.state === 'en-juego' && (
+        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-lime" />
+      )}
+      <span className="truncate font-mono text-[9px] uppercase tracking-wider opacity-80">
+        {match.timeLabel} · {match.tag}
+      </span>
+      <span className="truncate text-[11px] font-medium leading-tight">
+        {match.label}
+      </span>
+      {match.subtitle && (
+        <span className="truncate font-mono text-[8px] uppercase tracking-wider opacity-60">
+          {match.subtitle}
+        </span>
+      )}
+    </div>
+  )
+  return (
+    <div
+      className="absolute inset-y-1 p-1"
+      style={{ left: `${left}%`, width: `${width}%` }}
+      title={match.title}
+    >
+      {match.href ? (
+        <Link href={match.href} className="block h-full">
+          {inner}
+        </Link>
+      ) : (
+        inner
+      )}
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Página                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -240,11 +405,14 @@ export default async function DashboardResumenPage() {
     prisma.court.findMany({
       where: { clubId: club.id, isActive: true },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true },
+      select: { id: true, name: true, surface: true, isIndoor: true },
     }),
     prisma.match.findMany({
       where: { clubId: club.id, scheduledAt: { gte: dayStart, lt: dayEnd } },
       include: {
+        league: { select: { name: true, playKind: true } },
+        leagueRound: { select: { roundNumber: true } },
+        category: { select: { name: true } },
         sides: {
           orderBy: { side: 'asc' },
           include: {
@@ -254,19 +422,15 @@ export default async function DashboardResumenPage() {
         },
       },
     }),
-    // Reservas privadas (juego libre) que apartan pista hoy.
+    // Reservas privadas (juego libre o clase) que apartan pista hoy.
     prisma.courtReservation.findMany({
       where: {
         clubId: club.id,
         status: 'confirmed',
         startAt: { gte: dayStart, lt: dayEnd },
       },
-      select: {
-        courtId: true,
-        startAt: true,
-        durationMinutes: true,
-        holderName: true,
-      },
+      orderBy: { startAt: 'asc' },
+      include: { coach: { select: { fullName: true } } },
     }),
     prisma.match.findFirst({
       where: { clubId: club.id, status: 'in_progress' },
@@ -480,80 +644,137 @@ export default async function DashboardResumenPage() {
   })
   const courtNameById = new Map(courts.map((c) => [c.id, c.name]))
 
-  /* ---- Programación de pistas (hoy) ---- */
-  type ScheduleSlot = {
-    start: number
-    end: number
-    label: string
-    state: 'live' | 'next' | 'done' | 'reserva'
-  }
-  const slotsByCourt = new Map<string, ScheduleSlot[]>()
-  for (const m of dayMatches) {
-    if (!m.courtId || !m.scheduledAt) continue
-    const start = m.scheduledAt.getHours() + m.scheduledAt.getMinutes() / 60
-    const dur = (m.durationMinutes ?? DEFAULT_MATCH_MINUTES) / 60
-    const state: ScheduleSlot['state'] =
-      m.status === 'in_progress'
-        ? 'live'
-        : m.status === 'scheduled'
-          ? 'next'
-          : 'done'
-    const arr = slotsByCourt.get(m.courtId) ?? []
-    arr.push({
-      start,
-      end: start + dur,
-      label: `${sideLabel(m.sides[0])} · ${sideLabel(m.sides[1])}`,
-      state,
-    })
-    slotsByCourt.set(m.courtId, arr)
-  }
-  // Reservas privadas: bloquean su pista durante su duración (juego libre).
-  for (const r of dayReservations) {
-    const start = r.startAt.getHours() + r.startAt.getMinutes() / 60
-    const arr = slotsByCourt.get(r.courtId) ?? []
-    arr.push({
-      start,
-      end: start + r.durationMinutes / 60,
-      label: r.holderName,
-      state: 'reserva',
-    })
-    slotsByCourt.set(r.courtId, arr)
-  }
-
-  const slotTone: Record<ScheduleSlot['state'], string> = {
-    live: 'bg-forest text-cream',
-    next: 'border border-ochre/40 bg-ochre/15 text-foreground',
-    done: 'border border-border bg-muted/60 text-muted-foreground',
-    // Reservas en oscuro, igual que en la pantalla de programación.
-    reserva: 'bg-ink text-cream',
-  }
-
-  const allSlots = [...slotsByCourt.values()].flat()
-  const baseStart = parseHour(dayHours?.openTime) ?? 9
-  const baseEnd = parseHour(dayHours?.closeTime) ?? 21
-  const windowStart = Math.floor(
-    allSlots.length ? Math.min(baseStart, ...allSlots.map((s) => s.start)) : baseStart,
-  )
-  const windowEnd = Math.max(
-    windowStart + 1,
-    Math.ceil(
-      allSlots.length ? Math.max(baseEnd, ...allSlots.map((s) => s.end)) : baseEnd,
-    ),
-  )
-  const windowHours = windowEnd - windowStart
-  const pct = (hour: number) => ((hour - windowStart) / windowHours) * 100
-  const timeTicks: string[] = []
-  for (let h = windowStart; h <= windowEnd; h++) {
-    timeTicks.push(`${String(h).padStart(2, '0')}:00`)
-  }
-  const scheduleCourts = courts.map((c) => ({
-    name: c.name,
-    slots: (slotsByCourt.get(c.id) ?? []).sort((a, b) => a.start - b.start),
-  }))
-
-  // Clave "YYYY-MM-DD" de hoy para prerellenar la fecha del formulario de reserva.
+  // Clave "YYYY-MM-DD" de hoy para prerellenar la fecha del formulario de reserva
+  // y enlazar las reservas a su panel de edición en /programacion.
   const pad = (n: number) => String(n).padStart(2, '0')
   const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+
+  /* ---- Programación de pistas (mismo tema que /dashboard/programacion) ---- */
+  const matchById = new Map<string, ScheduledMatch>()
+  const byCourt = new Map<string, ScheduledMatch[]>()
+  for (const m of dayMatches) {
+    if (!m.courtId || !m.scheduledAt) continue
+    // Las rondas de un grupo de liga comparten la hora del grupo pero son
+    // secuenciales: se escalonan según su orden para no solaparse.
+    const slot = m.leagueId
+      ? leagueStaggerSlot(m.league?.playKind, m.intraGroupOrder)
+      : 0
+    const durMin = m.durationMinutes ?? DEFAULT_MATCH_MINUTES
+    const startMinutes =
+      m.scheduledAt.getHours() * 60 + m.scheduledAt.getMinutes() + slot * durMin
+    const startH = Math.floor(startMinutes / 60)
+    const startM = startMinutes % 60
+    const start = startMinutes / 60
+    const timeLabel = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`
+    const { subtitle, tag, full } = matchContext(m)
+    const label = `${sideLabel(m.sides[0])} vs ${sideLabel(m.sides[1])}`
+    const sm: ScheduledMatch = {
+      id: m.id,
+      kind: 'match',
+      start,
+      duration: durMin / 60,
+      subtitle,
+      tag,
+      label,
+      timeLabel,
+      state: stateFromStatus[m.status] ?? 'proximo',
+      lane: 0,
+      lanes: 1,
+      href:
+        m.leagueId && m.leagueRoundId
+          ? `/dashboard/ligas/${m.leagueId}/jornadas/${m.leagueRoundId}`
+          : undefined,
+      title: `${full}\n${label}\n${timeLabel}`,
+    }
+    matchById.set(m.id, sm)
+    const list = byCourt.get(m.courtId) ?? []
+    list.push(sm)
+    byCourt.set(m.courtId, list)
+  }
+  // Reservas privadas (juego libre o clase): bloquean su pista durante su duración.
+  for (const r of dayReservations) {
+    const startH = r.startAt.getHours()
+    const startM = r.startAt.getMinutes()
+    const start = startH + startM / 60
+    const timeLabel = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`
+    const isClass = r.kind === 'class'
+    const sm: ScheduledMatch = {
+      id: r.id,
+      kind: 'reserva',
+      start,
+      duration: r.durationMinutes / 60,
+      subtitle: isClass
+        ? `Clase${r.coach ? ` · ${r.coach.fullName}` : ''}`
+        : paymentStatusLabels[r.paymentStatus as ReservationPaymentStatus],
+      tag: isClass ? 'Clase' : 'Reserva',
+      label: r.holderName,
+      timeLabel,
+      state: isClass ? 'clase' : 'reserva',
+      lane: 0,
+      lanes: 1,
+      // Al hacer clic se abre el panel de edición en la pantalla de programación.
+      href: `/dashboard/programacion?d=${todayKey}&edit=${r.id}`,
+      title: `${isClass ? 'Clase' : 'Reserva'} · ${r.holderName}\n${timeLabel} · ${formatDuration(
+        r.durationMinutes,
+      )}`,
+    }
+    matchById.set(r.id, sm)
+    const list = byCourt.get(r.courtId) ?? []
+    list.push(sm)
+    byCourt.set(r.courtId, list)
+  }
+
+  // Conflicto: dos o más eventos en la misma pista a la misma hora de inicio. Se
+  // reparten en «carriles» (lane/lanes) para dibujarse lado a lado.
+  for (const list of byCourt.values()) {
+    const byStart = new Map<number, ScheduledMatch[]>()
+    for (const m of list) {
+      const g = byStart.get(m.start) ?? []
+      g.push(m)
+      byStart.set(m.start, g)
+    }
+    for (const g of byStart.values()) {
+      g.forEach((m, i) => {
+        m.lane = i
+        m.lanes = g.length
+      })
+      if (g.length > 1) {
+        for (const m of g) m.state = 'conflicto'
+      }
+    }
+  }
+
+  // Ventana horaria: el horario del club, ampliado si algún evento cae fuera.
+  const placed = [...matchById.values()]
+  const baseStart = parseHour(dayHours?.openTime) ?? 9
+  const baseEnd = parseHour(dayHours?.closeTime) ?? 21
+  const windowStart = placed.length
+    ? Math.min(Math.floor(baseStart), Math.floor(Math.min(...placed.map((m) => m.start))))
+    : Math.floor(baseStart)
+  const windowEnd = Math.max(
+    windowStart + 1,
+    placed.length
+      ? Math.max(
+          Math.ceil(baseEnd),
+          Math.ceil(Math.max(...placed.map((m) => m.start + m.duration))),
+        )
+      : Math.ceil(baseEnd),
+  )
+  const windowHours = windowEnd - windowStart
+  const scheduleHours = Array.from({ length: windowHours }, (_, i) => windowStart + i)
+  const scheduleCourts = courts.map((c, i) => ({
+    id: c.id,
+    n: i + 1,
+    name: c.name,
+    surface: `${surfaceLabels[c.surface] ?? c.surface}${c.isIndoor ? ' · Cubierta' : ''}`,
+    matches: (byCourt.get(c.id) ?? []).sort((a, b) => a.start - b.start),
+  }))
+
+  // Línea de la hora actual (siempre es hoy en el resumen).
+  const nowHour = now.getHours() + now.getMinutes() / 60
+  const nowFraction = (nowHour - windowStart) / windowHours
+  const showNow = nowFraction >= 0 && nowFraction <= 1
+  const nowLeft = `calc(184px + (100% - 184px) * ${nowFraction})`
 
   /* ---- Saludo ---- */
   const hour = now.getHours()
@@ -857,7 +1078,7 @@ export default async function DashboardResumenPage() {
           </div>
         </section>
 
-        {/* ---- Programación de pistas ---- */}
+        {/* ---- Programación de pistas (mismo tema que /programacion) ---- */}
         <section className="mt-10 border-t border-border pt-10">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -869,16 +1090,11 @@ export default async function DashboardResumenPage() {
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-              <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                {[
-                  { label: 'En juego', cls: 'bg-forest' },
-                  { label: 'Próximo', cls: 'bg-ochre' },
-                  { label: 'Reserva', cls: 'bg-ink' },
-                  { label: 'Disputado', cls: 'bg-muted border border-border' },
-                ].map((legend) => (
-                  <span key={legend.label} className="flex items-center gap-1.5">
-                    <span className={cn('size-2.5 rounded-sm', legend.cls)} />
-                    {legend.label}
+              <div className="flex flex-wrap items-center gap-4 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {scheduleLegend.map((item) => (
+                  <span key={item.label} className="flex items-center gap-1.5">
+                    <span className={cn('size-2.5 rounded-sm', item.cls)} />
+                    {item.label}
                   </span>
                 ))}
               </div>
@@ -898,51 +1114,92 @@ export default async function DashboardResumenPage() {
               para programar partidos.
             </div>
           ) : (
-            <div className="mt-6 rounded-xl border border-border bg-card p-5">
-              {/* Cabecera de horas */}
-              <div className="grid grid-cols-[64px_1fr] gap-4">
-                <span />
-                <div className="flex justify-between font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {timeTicks.map((tick) => (
-                    <span key={tick}>{tick}</span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Pistas */}
-              <div className="mt-3 space-y-2">
-                {scheduleCourts.map((court) => (
-                  <div
-                    key={court.name}
-                    className="grid grid-cols-[64px_1fr] items-center gap-4"
-                  >
-                    <span className="truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {court.name}
+            <div className="mt-6 overflow-x-auto rounded-xl border border-border bg-card">
+              <div className="min-w-[1180px]">
+                {/* Cabecera de horas */}
+                <div className="grid grid-cols-[184px_minmax(0,1fr)] border-b border-border bg-muted/30">
+                  <div className="flex flex-col justify-center border-r border-border px-4 py-3">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Pistas · {courts.length}
                     </span>
-                    <div className="relative h-9 rounded-md bg-muted/50">
-                      {court.slots.map((slot, i) => (
-                        <div
-                          key={i}
-                          className={cn(
-                            'absolute inset-y-0 flex items-center overflow-hidden rounded-md px-2',
-                            slotTone[slot.state],
-                          )}
-                          style={{
-                            left: `${pct(slot.start)}%`,
-                            width: `${Math.max(0, pct(slot.end) - pct(slot.start))}%`,
-                          }}
-                        >
-                          <span className="truncate font-mono text-[11px]">
-                            {slot.label}
-                          </span>
-                          {slot.state === 'live' && (
-                            <span className="ml-auto inline-block size-1.5 shrink-0 rounded-full bg-lime" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60">
+                      Disponibles
+                    </span>
                   </div>
-                ))}
+                  <div className="flex">
+                    {scheduleHours.map((h) => (
+                      <div
+                        key={h}
+                        className="flex-1 border-l border-border/50 px-2 py-3 font-mono"
+                      >
+                        <span className="block text-[11px] text-foreground">
+                          {String(h).padStart(2, '0')}:00
+                        </span>
+                        <span className="block text-[10px] text-muted-foreground/60">
+                          1h
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Filas de pistas */}
+                <div className="relative">
+                  {scheduleCourts.map((court) => (
+                    <div
+                      key={court.id}
+                      className="grid min-h-[68px] grid-cols-[184px_minmax(0,1fr)] border-b border-border last:border-b-0"
+                    >
+                      {/* Etiqueta de pista */}
+                      <div className="flex items-center gap-3 border-r border-border px-4">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded border border-border font-mono text-[11px] text-muted-foreground">
+                          {court.n}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-foreground">
+                            {court.name}
+                          </p>
+                          <p className="truncate font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                            {court.surface}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Pista temporal: rejilla de horas + bloques posicionados */}
+                      <div className="relative">
+                        <div className="pointer-events-none absolute inset-0 flex">
+                          {scheduleHours.map((h) => (
+                            <div
+                              key={h}
+                              className="flex-1 border-l border-border/50"
+                            />
+                          ))}
+                        </div>
+                        {court.matches.map((match) => (
+                          <MatchBlock
+                            key={match.id}
+                            match={match}
+                            windowStart={windowStart}
+                            windowHours={windowHours}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Línea de hora actual */}
+                  {showNow && (
+                    <div
+                      className="pointer-events-none absolute inset-y-0 z-10 w-px bg-terracotta"
+                      style={{ left: nowLeft }}
+                    >
+                      <span className="absolute -top-px left-1/2 -translate-x-1/2 rounded-sm bg-terracotta px-1 py-0.5 font-mono text-[9px] leading-none text-cream">
+                        {String(now.getHours()).padStart(2, '0')}:
+                        {String(now.getMinutes()).padStart(2, '0')}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

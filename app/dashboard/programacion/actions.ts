@@ -7,18 +7,17 @@ import { prisma } from '@/lib/prisma'
 import { getManagedClub } from '@/lib/club'
 import { DEFAULT_MATCH_MINUTES, leagueStaggerSlot } from '@/lib/league-rules'
 import { createReservationSchema } from '@/lib/validations/reservation'
+import {
+  clubDateAndTimeToUtc,
+  clubDateKey,
+  clubDayRange,
+  clubTimeLabel,
+} from '@/lib/timezone'
 
 /** Las reservas se muestran en la programación y en el resumen del club. */
 function revalidateSchedules() {
   revalidatePath('/dashboard/programacion')
   revalidatePath('/dashboard')
-}
-
-/** Date local → "HH:MM" para mensajes de conflicto. */
-function hhmm(date: Date): string {
-  return `${String(date.getHours()).padStart(2, '0')}:${String(
-    date.getMinutes(),
-  ).padStart(2, '0')}`
 }
 
 /** ¿Se solapan los intervalos [aStart, aEnd) y [bStart, bEnd)? (ms) */
@@ -47,10 +46,7 @@ async function findCourtConflict(opts: {
   const { courtId, startAt, durationMinutes, excludeReservationId } = opts
   const newStart = startAt.getTime()
   const newEnd = newStart + durationMinutes * 60_000
-  const dayStart = new Date(startAt)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart)
-  dayEnd.setDate(dayEnd.getDate() + 1)
+  const { start: dayStart, end: dayEnd } = clubDayRange(clubDateKey(startAt))
 
   const [otherReservations, dayMatches] = await Promise.all([
     prisma.courtReservation.findMany({
@@ -82,7 +78,7 @@ async function findCourtConflict(opts: {
     const s = r.startAt.getTime()
     const e = s + r.durationMinutes * 60_000
     if (overlaps(newStart, newEnd, s, e)) {
-      return `Esa pista ya tiene una reserva de ${r.holderName} a las ${hhmm(
+      return `Esa pista ya tiene una reserva de ${r.holderName} a las ${clubTimeLabel(
         r.startAt,
       )}. Elige otra hora o pista.`
     }
@@ -97,7 +93,7 @@ async function findCourtConflict(opts: {
     const s = m.scheduledAt.getTime() + slot * durMin * 60_000
     const e = s + durMin * 60_000
     if (overlaps(newStart, newEnd, s, e)) {
-      return `Esa pista tiene un partido programado a las ${hhmm(
+      return `Esa pista tiene un partido programado a las ${clubTimeLabel(
         new Date(s),
       )}. Elige otra hora o pista.`
     }
@@ -120,10 +116,7 @@ async function findCoachConflict(opts: {
   const { coachId, startAt, durationMinutes, excludeReservationId } = opts
   const newStart = startAt.getTime()
   const newEnd = newStart + durationMinutes * 60_000
-  const dayStart = new Date(startAt)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart)
-  dayEnd.setDate(dayEnd.getDate() + 1)
+  const { start: dayStart, end: dayEnd } = clubDayRange(clubDateKey(startAt))
 
   const others = await prisma.courtReservation.findMany({
     where: {
@@ -138,7 +131,7 @@ async function findCoachConflict(opts: {
     const s = r.startAt.getTime()
     const e = s + r.durationMinutes * 60_000
     if (overlaps(newStart, newEnd, s, e)) {
-      return `El coach ya tiene una clase a las ${hhmm(
+      return `El coach ya tiene una clase a las ${clubTimeLabel(
         r.startAt,
       )}. Elige otra hora.`
     }
@@ -265,9 +258,9 @@ export async function createReservation(
   })
   if (!court) return { fieldErrors: { courtId: ['Pista no válida.'] } }
 
-  // Hora local del club (consistente con el resto de la programación, que lee
-  // scheduledAt en hora local sin conversión de zona horaria).
-  const startAt = new Date(`${d.date}T${d.time}:00`)
+  // La hora tecleada es hora de pared del club: se convierte al instante UTC
+  // correcto para almacenarla (y se lee igual en local y en producción).
+  const startAt = clubDateAndTimeToUtc(d.date, d.time)
   if (Number.isNaN(startAt.getTime())) {
     return { fieldErrors: { date: ['Fecha u hora inválida.'] } }
   }
@@ -333,7 +326,7 @@ export async function updateReservation(
   })
   if (!court) return { fieldErrors: { courtId: ['Pista no válida.'] } }
 
-  const startAt = new Date(`${d.date}T${d.time}:00`)
+  const startAt = clubDateAndTimeToUtc(d.date, d.time)
   if (Number.isNaN(startAt.getTime())) {
     return { fieldErrors: { date: ['Fecha u hora inválida.'] } }
   }

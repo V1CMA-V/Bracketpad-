@@ -12,6 +12,15 @@ import {
   paymentStatusLabels,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
+import {
+  clubDateKey,
+  clubDayRange,
+  clubDecimalHour,
+  clubMinutesOfDay,
+  clubTimeLabel,
+  clubWeekday,
+  formatInClubTz,
+} from '@/lib/timezone'
 import { ChevronRight, Plus } from 'lucide-react'
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
@@ -363,10 +372,8 @@ export default async function DashboardResumenPage() {
   }
 
   const now = new Date()
-  const dayStart = new Date(now)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart)
-  dayEnd.setDate(dayEnd.getDate() + 1)
+  const todayKey = clubDateKey(now)
+  const { start: dayStart, end: dayEnd } = clubDayRange(todayKey)
 
   const [
     leagues,
@@ -452,7 +459,7 @@ export default async function DashboardResumenPage() {
     }),
     prisma.clubHours.findUnique({
       where: {
-        clubId_dayOfWeek: { clubId: club.id, dayOfWeek: now.getDay() },
+        clubId_dayOfWeek: { clubId: club.id, dayOfWeek: clubWeekday(now) },
       },
       select: { openTime: true, closeTime: true },
     }),
@@ -644,11 +651,6 @@ export default async function DashboardResumenPage() {
   })
   const courtNameById = new Map(courts.map((c) => [c.id, c.name]))
 
-  // Clave "YYYY-MM-DD" de hoy para prerellenar la fecha del formulario de reserva
-  // y enlazar las reservas a su panel de edición en /programacion.
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-
   /* ---- Programación de pistas (mismo tema que /dashboard/programacion) ---- */
   const matchById = new Map<string, ScheduledMatch>()
   const byCourt = new Map<string, ScheduledMatch[]>()
@@ -660,8 +662,7 @@ export default async function DashboardResumenPage() {
       ? leagueStaggerSlot(m.league?.playKind, m.intraGroupOrder)
       : 0
     const durMin = m.durationMinutes ?? DEFAULT_MATCH_MINUTES
-    const startMinutes =
-      m.scheduledAt.getHours() * 60 + m.scheduledAt.getMinutes() + slot * durMin
+    const startMinutes = clubMinutesOfDay(m.scheduledAt) + slot * durMin
     const startH = Math.floor(startMinutes / 60)
     const startM = startMinutes % 60
     const start = startMinutes / 60
@@ -693,10 +694,8 @@ export default async function DashboardResumenPage() {
   }
   // Reservas privadas (juego libre o clase): bloquean su pista durante su duración.
   for (const r of dayReservations) {
-    const startH = r.startAt.getHours()
-    const startM = r.startAt.getMinutes()
-    const start = startH + startM / 60
-    const timeLabel = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`
+    const start = clubDecimalHour(r.startAt)
+    const timeLabel = clubTimeLabel(r.startAt)
     const isClass = r.kind === 'class'
     const sm: ScheduledMatch = {
       id: r.id,
@@ -771,13 +770,13 @@ export default async function DashboardResumenPage() {
   }))
 
   // Línea de la hora actual (siempre es hoy en el resumen).
-  const nowHour = now.getHours() + now.getMinutes() / 60
+  const nowHour = clubDecimalHour(now)
   const nowFraction = (nowHour - windowStart) / windowHours
   const showNow = nowFraction >= 0 && nowFraction <= 1
   const nowLeft = `calc(184px + (100% - 184px) * ${nowFraction})`
 
   /* ---- Saludo ---- */
-  const hour = now.getHours()
+  const hour = Number(formatInClubTz(now, 'H'))
   const greeting =
     hour < 12 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches'
   const firstName = (session?.user?.name ?? club.name).split(/\s+/)[0]
@@ -1194,8 +1193,7 @@ export default async function DashboardResumenPage() {
                       style={{ left: nowLeft }}
                     >
                       <span className="absolute -top-px left-1/2 -translate-x-1/2 rounded-sm bg-terracotta px-1 py-0.5 font-mono text-[9px] leading-none text-cream">
-                        {String(now.getHours()).padStart(2, '0')}:
-                        {String(now.getMinutes()).padStart(2, '0')}
+                        {clubTimeLabel(now)}
                       </span>
                     </div>
                   )}

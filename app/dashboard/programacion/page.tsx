@@ -22,6 +22,16 @@ import {
   type ReservationPaymentStatus,
   type WeekHours,
 } from '@/lib/reservations'
+import {
+  clubDateKey,
+  clubDayNoon,
+  clubDayRange,
+  clubDecimalHour,
+  clubMinutesOfDay,
+  clubTimeLabel,
+  clubWeekday,
+  formatInClubTz,
+} from '@/lib/timezone'
 import { CalendarClock } from 'lucide-react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -102,22 +112,9 @@ const legend: { label: string; cls: string }[] = [
   { label: 'Conflicto', cls: 'bg-terracotta' },
 ]
 
-const weekdayLongFmt = new Intl.DateTimeFormat('es', { weekday: 'long' })
-const dayMonthFmt = new Intl.DateTimeFormat('es', {
-  day: 'numeric',
-  month: 'long',
-})
-const weekdayShortFmt = new Intl.DateTimeFormat('es', { weekday: 'short' })
-
 /* -------------------------------------------------------------------------- */
 /*  Utilidades                                                                 */
 /* -------------------------------------------------------------------------- */
-
-/** Date local → clave "YYYY-MM-DD". */
-function dateKey(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
 
 /** Apellido (último token) para etiquetas compactas. */
 function surname(full: string): string {
@@ -141,11 +138,8 @@ function parseHour(hhmm: string | null): number | null {
 /*  Carga de datos                                                            */
 /* -------------------------------------------------------------------------- */
 
-async function getSchedule(clubId: string, day: Date) {
-  const dayStart = new Date(day)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart)
-  dayEnd.setDate(dayEnd.getDate() + 1)
+async function getSchedule(clubId: string, dayKey: string) {
+  const { start: dayStart, end: dayEnd } = clubDayRange(dayKey)
 
   const [courts, matches, reservations, coaches, classPricing, allHours] =
     await Promise.all([
@@ -198,7 +192,7 @@ async function getSchedule(clubId: string, day: Date) {
   for (const h of allHours) {
     weekHours[h.dayOfWeek] = { openTime: h.openTime, closeTime: h.closeTime }
   }
-  const dayHours = weekHours[day.getDay()]
+  const dayHours = weekHours[clubWeekday(dayStart)]
 
   return {
     courts,
@@ -345,12 +339,12 @@ export default async function ProgramacionPage({
   if (!club) notFound()
 
   const { d, edit } = await searchParams
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const selected =
-    d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T00:00:00`) : today
-  const selectedKey = dateKey(selected)
-  const todayKey = dateKey(today)
+  const todayKey = clubDateKey(new Date())
+  const selectedKey =
+    d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayKey
+  // Ancla a mediodía del día seleccionado (mismo día natural en el club) para
+  // formatear el encabezado y construir la semana.
+  const selected = clubDayNoon(selectedKey)
   const isToday = selectedKey === todayKey
 
   const {
@@ -361,7 +355,7 @@ export default async function ProgramacionPage({
     classPricing,
     weekHours,
     dayHours,
-  } = await getSchedule(club.id, selected)
+  } = await getSchedule(club.id, selectedKey)
 
   // Coaches y tarifario de clases para el formulario de reserva.
   const coachOptions = coaches.map((c) => ({ id: c.id, name: c.fullName }))
@@ -392,8 +386,7 @@ export default async function ProgramacionPage({
     // El escalonado y el ancho del bloque usan la duración real del partido
     // (apartado de cancha); si no se fijó, la duración por defecto.
     const durMin = m.durationMinutes ?? DEFAULT_MATCH_MINUTES
-    const startMinutes =
-      m.scheduledAt.getHours() * 60 + m.scheduledAt.getMinutes() + slot * durMin
+    const startMinutes = clubMinutesOfDay(m.scheduledAt) + slot * durMin
     const startH = Math.floor(startMinutes / 60)
     const startM = startMinutes % 60
     const start = startMinutes / 60
@@ -432,12 +425,8 @@ export default async function ProgramacionPage({
   // pista chocan igual que dos partidos.
   for (const r of reservations) {
     if (r.status === 'cancelled') continue
-    const startH = r.startAt.getHours()
-    const startM = r.startAt.getMinutes()
-    const start = startH + startM / 60
-    const timeLabel = `${String(startH).padStart(2, '0')}:${String(
-      startM,
-    ).padStart(2, '0')}`
+    const start = clubDecimalHour(r.startAt)
+    const timeLabel = clubTimeLabel(r.startAt)
     // En una clase se muestra el coach y el nº de jugadores; en juego libre, el
     // estado de cobro como antes.
     const isClass = r.kind === 'class'
@@ -565,7 +554,7 @@ export default async function ProgramacionPage({
 
   // «En juego» = partidos en curso + reservas/clases activas ahora mismo (solo
   // tiene sentido en el día de hoy; otros días siempre es 0).
-  const nowMs = Date.now()
+  const nowMs = new Date().getTime()
   const inPlayMatches = matches.filter((m) => m.status === 'in_progress').length
   const inPlayReservations = isToday
     ? activeReservations.filter((r) => {
@@ -611,18 +600,19 @@ export default async function ProgramacionPage({
     },
   ]
 
-  // Semana (lunes → domingo) que contiene el día seleccionado.
+  // Semana (lunes → domingo) que contiene el día seleccionado. Se opera sobre el
+  // ancla a mediodía para que el día natural del club no se desplace.
   const monday = new Date(selected)
-  const dow = (monday.getDay() + 6) % 7 // 0 = lunes
-  monday.setDate(monday.getDate() - dow)
+  const dow = (selected.getUTCDay() + 6) % 7 // 0 = lunes
+  monday.setUTCDate(selected.getUTCDate() - dow)
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(monday)
-    date.setDate(monday.getDate() + i)
+    date.setUTCDate(monday.getUTCDate() + i)
     return date
   })
 
   const now = new Date()
-  const nowHour = now.getHours() + now.getMinutes() / 60
+  const nowHour = clubDecimalHour(now)
   const nowFraction = (nowHour - windowStart) / windowHours
   const showNow = isToday && nowFraction >= 0 && nowFraction <= 1
   const nowLeft = `calc(184px + (100% - 184px) * ${nowFraction})`
@@ -630,8 +620,6 @@ export default async function ProgramacionPage({
   // Filas para la lista «Reservas del día» (incluye las canceladas). Los
   // importes Decimal de Prisma se convierten a número para el componente cliente.
   const reservationRows: ReservationRow[] = reservations.map((r) => {
-    const startH = r.startAt.getHours()
-    const startM = r.startAt.getMinutes()
     return {
       id: r.id,
       courtName: courtNameById.get(r.courtId) ?? 'Pista',
@@ -640,7 +628,7 @@ export default async function ProgramacionPage({
       playerCount: r.playerCount,
       holderName: r.holderName,
       phone: r.phone,
-      timeLabel: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
+      timeLabel: clubTimeLabel(r.startAt),
       durationLabel: formatDuration(r.durationMinutes),
       paymentStatus: r.paymentStatus as ReservationPaymentStatus,
       price: r.price ? Number(r.price) : null,
@@ -689,10 +677,8 @@ export default async function ProgramacionPage({
         playerCount: editing.playerCount,
         holderName: editing.holderName,
         phone: editing.phone,
-        date: dateKey(editing.startAt),
-        time: `${String(editing.startAt.getHours()).padStart(2, '0')}:${String(
-          editing.startAt.getMinutes(),
-        ).padStart(2, '0')}`,
+        date: clubDateKey(editing.startAt),
+        time: clubTimeLabel(editing.startAt),
         durationMinutes: editing.durationMinutes,
         paymentStatus: editing.paymentStatus as ReservationPaymentStatus,
         price: editing.price ? Number(editing.price) : null,
@@ -732,8 +718,10 @@ export default async function ProgramacionPage({
               {club.name} · Programación
             </p>
             <h1 className="mt-4 font-serif text-5xl leading-[1.05] tracking-tight text-foreground md:text-6xl">
-              {capitalize(weekdayLongFmt.format(selected))}{' '}
-              <em className="italic">{dayMonthFmt.format(selected)}</em>
+              {capitalize(formatInClubTz(selected, 'EEEE'))}{' '}
+              <em className="italic">
+                {formatInClubTz(selected, "d 'de' LLLL")}
+              </em>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
               {scheduledTotal === 0 ? (
@@ -838,7 +826,7 @@ export default async function ProgramacionPage({
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
           <div className="flex flex-wrap items-center gap-1">
             {weekDays.map((date) => {
-              const key = dateKey(date)
+              const key = clubDateKey(date)
               const active = key === selectedKey
               return (
                 <Link
@@ -851,7 +839,7 @@ export default async function ProgramacionPage({
                       : 'text-muted-foreground hover:bg-muted',
                   )}
                 >
-                  {weekdayShortFmt.format(date).replace('.', '')} {date.getDate()}
+                  {formatInClubTz(date, 'EEE')} {date.getUTCDate()}
                 </Link>
               )
             })}
@@ -1015,8 +1003,7 @@ export default async function ProgramacionPage({
                     style={{ left: nowLeft }}
                   >
                     <span className="absolute -top-px left-1/2 -translate-x-1/2 rounded-sm bg-terracotta px-1 py-0.5 font-mono text-[9px] leading-none text-cream">
-                      {String(now.getHours()).padStart(2, '0')}:
-                      {String(now.getMinutes()).padStart(2, '0')}
+                      {clubTimeLabel(now)}
                     </span>
                   </div>
                 )}

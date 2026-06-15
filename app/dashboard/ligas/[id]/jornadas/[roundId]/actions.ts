@@ -15,6 +15,12 @@ import {
 } from '@/lib/validations/jornada'
 import { DEFAULT_MATCH_MINUTES, MAX_GAMES_PER_SET } from '@/lib/league-rules'
 import { compareStandings, recomputeStandings } from '@/lib/standings'
+import {
+  clubDateKey,
+  clubDayRange,
+  clubMinutesOfDay,
+  clubWallTimeToUtc,
+} from '@/lib/timezone'
 
 export type MatchState = {
   success?: boolean
@@ -82,10 +88,7 @@ async function findScheduleConflict(
   const courtIds = [...new Set(blocks.map((b) => b.courtId))]
   if (courtIds.length === 0) return null
 
-  const dayStart = new Date(when)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart)
-  dayEnd.setDate(dayEnd.getDate() + 1)
+  const { start: dayStart, end: dayEnd } = clubDayRange(clubDateKey(when))
 
   const existing = await prisma.match.findMany({
     where: {
@@ -123,8 +126,7 @@ async function findScheduleConflict(
             ? Math.floor((e.intraGroupOrder - 1) / 2)
             : e.intraGroupOrder - 1
       }
-      const effStart =
-        e.scheduledAt.getHours() * 60 + e.scheduledAt.getMinutes() + slot * dur
+      const effStart = clubMinutesOfDay(e.scheduledAt) + slot * dur
       const effEnd = effStart + dur
       if (b.startMin < effEnd && effStart < b.endMin) {
         const hh = String(Math.floor(effStart / 60)).padStart(2, '0')
@@ -142,7 +144,7 @@ function groupBlocks(
   courtIds: string[],
   durationMinutes: number,
 ): CourtBlock[] {
-  const startMin = when.getHours() * 60 + when.getMinutes()
+  const startMin = clubMinutesOfDay(when)
   const endMin = startMin + 3 * durationMinutes
   return courtIds.map((courtId) => ({ courtId, startMin, endMin }))
 }
@@ -213,9 +215,9 @@ export async function createMatch(
       leagueRoundId: round.id,
       courtId: courtId || null,
       groupNumber: groupNumber ?? null,
-      // datetime-local no lleva zona horaria; se interpreta en la hora del
-      // servidor. Suficiente para programar partidos de la jornada.
-      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      // datetime-local no lleva zona horaria: se interpreta como hora de pared
+      // del club y se convierte al instante UTC correcto al guardar.
+      scheduledAt: scheduledAt ? clubWallTimeToUtc(scheduledAt) : null,
       status: 'scheduled',
       sides: {
         create: [
@@ -656,7 +658,7 @@ export async function createGroup(
     groupNumber = (agg._max.groupNumber ?? 0) + 1
   }
 
-  const when = scheduledAt ? new Date(scheduledAt) : null
+  const when = scheduledAt ? clubWallTimeToUtc(scheduledAt) : null
 
   // Aviso de pista ocupada: solo si se fija horario y cancha.
   if (when && courtId) {
@@ -821,7 +823,7 @@ export async function createPairGroup(
     }
   })
 
-  const when = scheduledAt ? new Date(scheduledAt) : null
+  const when = scheduledAt ? clubWallTimeToUtc(scheduledAt) : null
 
   // Aviso de pista ocupada: las dos canchas del grupo deben estar libres.
   if (when) {
@@ -1019,7 +1021,7 @@ export async function updatePairGroupDetails(
     return { fieldErrors: { courtBId: ['Duración inválida (30–240 min).'] } }
   }
 
-  const when = raw ? new Date(raw) : null
+  const when = raw ? clubWallTimeToUtc(raw) : null
   if (when) {
     const conflict = await findScheduleConflict(
       club.id,
@@ -1205,7 +1207,7 @@ export async function updateGroupDetails(
     return { error: 'Duración inválida (30–240 min).' }
   }
 
-  const when = raw ? new Date(raw) : null
+  const when = raw ? clubWallTimeToUtc(raw) : null
   if (when && rawCourt) {
     const conflict = await findScheduleConflict(
       club.id,
@@ -1304,7 +1306,7 @@ export async function updateMatchDetails(
   await prisma.match.update({
     where: { id: matchId },
     data: {
-      scheduledAt: raw ? new Date(raw) : null,
+      scheduledAt: raw ? clubWallTimeToUtc(raw) : null,
       groupNumber,
       courtId: rawCourt || null,
     },

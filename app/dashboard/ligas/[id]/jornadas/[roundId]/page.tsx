@@ -16,6 +16,7 @@ import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
 import { teamLabel } from '@/lib/leagues'
 import { compareStandings } from '@/lib/standings'
+import { clubDateTimeLocal, formatInClubTz } from '@/lib/timezone'
 
 // Formatea la fecha de la jornada (`scheduledDate`, `@db.Date`): se guarda como
 // medianoche UTC, así que se formatea en UTC para no mostrar un día antes en
@@ -26,25 +27,6 @@ const dateFmt = new Intl.DateTimeFormat('es', {
   year: 'numeric',
   timeZone: 'UTC',
 })
-
-const dateTimeFmt = new Intl.DateTimeFormat('es', {
-  day: '2-digit',
-  month: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-})
-
-/**
- * Convierte un `Date` al formato de `<input type="datetime-local">`
- * (`YYYY-MM-DDTHH:MM`) usando la hora local del servidor, igual que se
- * interpretó al guardarlo, para que el valor haga ida y vuelta sin desfase.
- */
-function toDateTimeLocal(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(
-    d.getHours(),
-  )}:${p(d.getMinutes())}`
-}
 
 export async function generateMetadata({
   params,
@@ -210,8 +192,10 @@ export default async function JornadaDetailPage({
       intraGroupOrder: m.intraGroupOrder ?? null,
       courtId: m.courtId ?? null,
       courtName: m.court?.name ?? null,
-      scheduledLabel: m.scheduledAt ? dateTimeFmt.format(m.scheduledAt) : null,
-      scheduledValue: m.scheduledAt ? toDateTimeLocal(m.scheduledAt) : null,
+      scheduledLabel: m.scheduledAt
+        ? formatInClubTz(m.scheduledAt, 'dd LLL, HH:mm')
+        : null,
+      scheduledValue: m.scheduledAt ? clubDateTimeLocal(m.scheduledAt) : null,
       durationMinutes: m.durationMinutes ?? null,
       sideA: side('A'),
       sideB: side('B'),

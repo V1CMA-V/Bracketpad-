@@ -11,29 +11,12 @@ import {
   type ReservationKind,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
+import { clubDateKey, clubTimeLabel, formatInClubTz } from '@/lib/timezone'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Reservas del club · Bandeja',
-}
-
-const weekdayFmt = new Intl.DateTimeFormat('es', { weekday: 'short' })
-const dayMonthFmt = new Intl.DateTimeFormat('es', {
-  day: 'numeric',
-  month: 'short',
-})
-
-/** Date local → clave "YYYY-MM-DD". */
-function dateKey(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-/** "18:00" a partir de un Date local. */
-function timeLabel(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 export default async function ReservasPage() {
@@ -80,11 +63,12 @@ export default async function ReservasPage() {
     kind: r.kind as ReservationKind,
     coachName: r.coach?.fullName ?? null,
     playerCount: r.playerCount,
-    dateKey: dateKey(r.startAt),
-    dateLabel: `${weekdayFmt.format(r.startAt).replace('.', '')} ${dayMonthFmt.format(
+    dateKey: clubDateKey(r.startAt),
+    dateLabel: `${formatInClubTz(r.startAt, 'EEE')} ${formatInClubTz(
       r.startAt,
+      'd LLL',
     )}`,
-    timeLabel: timeLabel(r.startAt),
+    timeLabel: clubTimeLabel(r.startAt),
     durationLabel: formatDuration(r.durationMinutes),
     paymentStatus: r.paymentStatus as ReservationPaymentStatus,
     price: r.price ? Number(r.price) : null,
@@ -102,7 +86,7 @@ export default async function ReservasPage() {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   // Métricas (excluyen las canceladas).
-  const now = Date.now()
+  const now = new Date().getTime()
   const active = reservations.filter((r) => r.status !== 'cancelled')
   const upcoming = active.filter((r) => r.startAt.getTime() >= now).length
   const outstanding = active.filter(

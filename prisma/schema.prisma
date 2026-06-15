@@ -545,6 +545,15 @@ model TournamentCategory {
   drawType     DrawType
   maxTeams     Int?
   bestOfSets   Int            @default(3) @db.SmallInt
+  goldenPoint  Boolean        @default(true) // punto de oro en deuce
+  tiebreakAt   Int            @default(6) @db.SmallInt // juegos para tie-break
+  // Configuración de la fase de grupos (solo aplica con drawType = groups_playoff):
+  // cuántas parejas integran cada grupo y cuántas avanzan a la fase final.
+  teamsPerGroup   Int? @db.SmallInt
+  advancePerGroup Int? @db.SmallInt
+  // Premio de la categoría (texto libre): no es lo mismo ganar 5ta que 1ra, así
+  // que cada categoría redacta su propio premio (efectivo, trofeo, productos…).
+  prize        String?
   // tarifa, antes en settings JSON:
   entryFee     Decimal?       @db.Decimal(10, 2)
   currency     String         @default("MXN")

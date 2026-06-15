@@ -1,31 +1,73 @@
 import { DashboardTopbar } from '@/components/dashboard/dashboard-topbar'
-import { TournamentsTable } from '@/components/dashboard/tournaments-table'
+import {
+  TournamentsTable,
+  type TournamentRow,
+} from '@/components/dashboard/tournaments-table'
 import { Button } from '@/components/ui/button'
+import { getManagedClub } from '@/lib/club'
+import { prisma } from '@/lib/prisma'
 import { Plus } from 'lucide-react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 
 export const metadata: Metadata = {
   title: 'Torneos · Bandeja',
 }
 
-const stats = [
-  { label: 'Activos', value: '2', sub: 'Hoy en juego' },
-  { label: 'Programados', value: '3', sub: 'Próximas 8 semanas' },
-  { label: 'Inscritos', value: '724', sub: 'Acumulado 2026' },
-  { label: 'Ingresos', value: '€8.060', sub: '2026 · cuotas' },
-]
+// Fechas de calendario `@db.Date` se guardan como medianoche UTC: se formatean
+// en UTC para no mostrarse un día antes en zonas con desfase negativo.
+const dayFmt = new Intl.DateTimeFormat('es', {
+  day: '2-digit',
+  month: 'short',
+})
 
-export default function TorneosPage() {
+function formatRange(start: Date | null, end: Date | null): string {
+  if (start && end) return `${dayFmt.format(start)} — ${dayFmt.format(end)}`
+  if (start) return dayFmt.format(start)
+  if (end) return `Hasta ${dayFmt.format(end)}`
+  return 'Sin fechas'
+}
+
+export default async function TorneosPage() {
+  const club = await getManagedClub()
+  if (!club) notFound()
+
+  const tournaments = await prisma.tournament.findMany({
+    where: { clubId: club.id },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      _count: { select: { categories: true } },
+      categories: { select: { _count: { select: { teams: true } } } },
+    },
+  })
+
+  const rows: TournamentRow[] = tournaments.map((t) => ({
+    id: t.id,
+    name: t.name,
+    status: t.status,
+    dateLabel: formatRange(t.startDate, t.endDate),
+    startMs: t.startDate ? t.startDate.getTime() : null,
+    categoryCount: t._count.categories,
+    teamCount: t.categories.reduce((sum, c) => sum + c._count.teams, 0),
+  }))
+
+  const activos = rows.filter((t) => t.status === 'in_progress').length
+  const inscripcion = rows.filter(
+    (t) => t.status === 'registration_open',
+  ).length
+  const borradores = rows.filter((t) => t.status === 'draft').length
+
+  const stats = [
+    { label: 'En juego', value: activos },
+    { label: 'Inscripción', value: inscripcion },
+    { label: 'Borradores', value: borradores },
+    { label: 'Total', value: rows.length },
+  ]
+
   return (
     <>
       <DashboardTopbar>
-        <Button variant="outline" className="h-9 rounded-md px-3.5 text-sm">
-          Importar de CSV
-        </Button>
-        <Button variant="outline" className="h-9 rounded-md px-3.5 text-sm">
-          Duplicar último
-        </Button>
         <Button asChild className="h-9 gap-1.5 rounded-md px-4 text-sm">
           <Link href="/dashboard/nuevo-evento">
             <Plus className="size-4" strokeWidth={2} />
@@ -39,15 +81,15 @@ export default function TorneosPage() {
         <section className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Temporada · Primavera-Verano 2026
+              {club.name} · Torneos
             </p>
             <h1 className="mt-4 font-serif text-5xl leading-[1.05] tracking-tight text-foreground md:text-6xl">
               Todos los <em className="italic">torneos.</em>
             </h1>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-              9 torneos en cartera —{' '}
-              <span className="text-foreground">2 en juego</span>, 3 programados,
-              2 borradores y 2 archivados de la temporada pasada.
+              {rows.length === 0
+                ? 'Aún no has creado torneos. Crea el primero para empezar a organizar categorías y cuadros.'
+                : `${rows.length} torneo${rows.length === 1 ? '' : 's'} en cartera.`}
             </p>
           </div>
 
@@ -57,11 +99,8 @@ export default function TorneosPage() {
                 <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                   {stat.label}
                 </dt>
-                <dd className="font-serif text-4xl leading-none text-foreground">
+                <dd className="font-serif text-4xl leading-none text-foreground tabular-nums">
                   {stat.value}
-                </dd>
-                <dd className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                  {stat.sub}
                 </dd>
               </div>
             ))}
@@ -70,7 +109,7 @@ export default function TorneosPage() {
 
         {/* ---- Listado de torneos ---- */}
         <section className="mt-10 border-t border-border pt-8">
-          <TournamentsTable />
+          <TournamentsTable tournaments={rows} />
         </section>
       </div>
     </>

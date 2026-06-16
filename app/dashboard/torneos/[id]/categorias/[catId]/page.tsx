@@ -31,7 +31,7 @@ export async function generateMetadata({
     where: { id: catId },
     select: { name: true },
   })
-  return { title: `${category?.name ?? 'Categoría'} · Bandeja` }
+  return { title: `${category?.name ?? 'Categoría'}` }
 }
 
 function DataRow({ label, value }: { label: string; value: string }) {

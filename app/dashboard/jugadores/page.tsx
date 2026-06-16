@@ -12,7 +12,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Jugadores del club · Bandeja',
+  title: 'Jugadores del club',
 }
 
 /** Date (solo fecha) → "YYYY-MM-DD" para los inputs de tipo date. */

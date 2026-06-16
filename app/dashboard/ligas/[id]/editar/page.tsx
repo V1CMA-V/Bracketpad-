@@ -28,7 +28,7 @@ export async function generateMetadata({
     where: { id },
     select: { name: true },
   })
-  return { title: `Editar ${league?.name ?? 'liga'} · Bandeja` }
+  return { title: `Editar ${league?.name ?? 'liga'}` }
 }
 
 export default async function LigaEditPage({

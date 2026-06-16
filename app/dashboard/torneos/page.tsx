@@ -12,7 +12,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 export const metadata: Metadata = {
-  title: 'Torneos · Bandeja',
+  title: 'Torneos',
 }
 
 // Fechas de calendario `@db.Date` se guardan como medianoche UTC: se formatean

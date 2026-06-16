@@ -4,8 +4,10 @@ import { getDirectoryClubs } from '@/lib/club-directory'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Clubs · Bandeja',
-  description: 'Busca y descubre todos los clubes de pádel de la comunidad.',
+  title: 'Clubs',
+  description:
+    'Busca y descubre clubes de pádel: pistas, ligas y torneos cerca de ti.',
+  alternates: { canonical: '/clubs' },
 }
 
 export default async function ClubsPage() {

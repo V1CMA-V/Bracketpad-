@@ -54,9 +54,14 @@ export async function generateMetadata({
   const { clubSlug } = await params
   const data = await getClubLeagues(clubSlug)
   if (!data) return { title: 'Club no encontrado' }
+  const title = `Ligas · ${data.club.name}`
+  const description = `Ligas y clasificaciones del ${data.club.name}.`
+  const canonical = `/clubs/${clubSlug}/ligas`
   return {
-    title: `Ligas · ${data.club.name}`,
-    description: `Ligas y clasificaciones del ${data.club.name}.`,
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: { type: 'website', url: canonical, title, description },
   }
 }
 

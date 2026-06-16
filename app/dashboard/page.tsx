@@ -27,7 +27,7 @@ import { headers } from 'next/headers'
 import Link from 'next/link'
 
 export const metadata: Metadata = {
-  title: 'Resumen del club · Bandeja',
+  title: 'Resumen del club',
 }
 
 /* -------------------------------------------------------------------------- */

@@ -79,7 +79,7 @@ export async function generateMetadata({
     where: { id },
     select: { name: true },
   })
-  return { title: `${league?.name ?? 'Liga'} · Bandeja` }
+  return { title: `${league?.name ?? 'Liga'}` }
 }
 
 /* -------------------------------------------------------------------------- */

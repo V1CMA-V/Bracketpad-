@@ -14,7 +14,7 @@ import {
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Notificaciones · Bandeja',
+  title: 'Notificaciones',
 }
 
 /* -------------------------------------------------------------------------- */

@@ -179,13 +179,23 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { clubSlug } = await params
   const data = await getClub(clubSlug)
-  if (!data) return { title: 'Club no encontrado · Bandeja' }
+  if (!data) return { title: 'Club no encontrado' }
   const { club } = data
+  const title = club.name
+  const description = `Pistas, ligas y torneos del ${club.name}${
+    club.city ? ` en ${club.city}` : ''
+  }.`
+  const canonical = `/clubs/${clubSlug}`
   return {
-    title: `${club.name} · Bandeja`,
-    description: `Pistas, ligas y torneos del ${club.name}${
-      club.city ? ` en ${club.city}` : ''
-    }.`,
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      type: 'website',
+      url: canonical,
+      title,
+      description,
+    },
   }
 }
 

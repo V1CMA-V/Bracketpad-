@@ -39,7 +39,7 @@ export async function generateMetadata({
     select: { roundNumber: true, name: true },
   })
   const label = round?.name ?? `Jornada ${round?.roundNumber ?? ''}`.trim()
-  return { title: `${label} · Bandeja` }
+  return { title: `${label}` }
 }
 
 export default async function JornadaDetailPage({

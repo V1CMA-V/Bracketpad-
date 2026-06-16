@@ -16,7 +16,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Reservas del club · Bandeja',
+  title: 'Reservas del club',
 }
 
 export default async function ReservasPage() {

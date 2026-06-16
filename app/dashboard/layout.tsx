@@ -5,6 +5,12 @@ import {
   type DashboardData,
 } from '@/components/dashboard/dashboard-context'
 import { getDashboardData, requireClubAccess } from '@/lib/club'
+import type { Metadata } from 'next'
+
+// El panel del club es privado: nunca debe indexarse aunque alguna URL se filtre.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+}
 
 /**
  * Reusable shell for every `/dashboard/*` page: a fixed menu on the left and a

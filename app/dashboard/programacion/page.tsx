@@ -38,7 +38,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 export const metadata: Metadata = {
-  title: 'Programación de pistas · Bandeja',
+  title: 'Programación de pistas',
 }
 
 /* -------------------------------------------------------------------------- */

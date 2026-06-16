@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   title: "Registra tu club",
   description:
     "Crea tu cuenta de propietario para administrar tu club, ligas y torneos.",
+  robots: { index: false, follow: false },
 }
 
 export default function RegistroClubPage() {

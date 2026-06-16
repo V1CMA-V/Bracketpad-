@@ -6,9 +6,10 @@ import { Hero } from '@/components/how-it-works/hero'
 import { PlayersSoon } from '@/components/how-it-works/players-soon'
 
 export const metadata: Metadata = {
-  title: 'Cómo funciona · Bandeja',
+  title: 'Cómo funciona',
   description:
     'Cómo funciona Bandeja para clubes de pádel: torneos, ligas, programación de pistas, reservas y clases. La experiencia para jugadores llegará pronto.',
+  alternates: { canonical: '/como-funciona' },
 }
 
 export default function ComoFuncionaPage() {

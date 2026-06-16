@@ -1,5 +1,6 @@
+import { siteConfig } from '@/lib/site'
 import { cn } from '@/lib/utils'
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Geist, Instrument_Serif, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 
@@ -24,9 +25,58 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Bandeja - AI-powered branding',
-  description:
-    'Bandeja is a platform for creating and managing your own brand.',
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: `${siteConfig.name} · ${siteConfig.tagline}`,
+    template: `%s · ${siteConfig.name}`,
+  },
+  description: siteConfig.description,
+  applicationName: siteConfig.name,
+  keywords: [
+    'pádel',
+    'torneos de pádel',
+    'ligas de pádel',
+    'club de pádel',
+    'reservas de pista',
+    'cuadros de torneo',
+    'gestión de club',
+    'resultados en vivo',
+  ],
+  authors: [{ name: siteConfig.name, url: siteConfig.url }],
+  creator: siteConfig.name,
+  publisher: siteConfig.name,
+  openGraph: {
+    type: 'website',
+    locale: siteConfig.locale,
+    url: siteConfig.url,
+    siteName: siteConfig.name,
+    title: `${siteConfig.name} · ${siteConfig.tagline}`,
+    description: siteConfig.description,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${siteConfig.name} · ${siteConfig.tagline}`,
+    description: siteConfig.description,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  formatDetection: { telephone: false },
+}
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#fdfcf9' },
+    { media: '(prefers-color-scheme: dark)', color: '#1a1a18' },
+  ],
 }
 
 export default function RootLayout({
@@ -34,9 +84,31 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Organization',
+        '@id': `${siteConfig.url}/#organization`,
+        name: siteConfig.name,
+        url: siteConfig.url,
+        description: siteConfig.description,
+      },
+      {
+        '@type': 'WebSite',
+        '@id': `${siteConfig.url}/#website`,
+        url: siteConfig.url,
+        name: siteConfig.name,
+        description: siteConfig.description,
+        inLanguage: 'es',
+        publisher: { '@id': `${siteConfig.url}/#organization` },
+      },
+    ],
+  }
+
   return (
     <html
-      lang="en"
+      lang="es"
       className={cn(
         'h-full',
         'antialiased',
@@ -46,7 +118,13 @@ export default function RootLayout({
         jetbrainsMono.variable,
       )}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        {children}
+      </body>
     </html>
   )
 }

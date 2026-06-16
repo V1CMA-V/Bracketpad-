@@ -6,7 +6,8 @@ import { LoginForm } from "@/components/login-form"
 
 export const metadata: Metadata = {
   title: "Iniciar sesión",
-  description: "Accede a tu cuenta de Bracketpad.",
+  description: "Accede a tu cuenta de Bandeja.",
+  robots: { index: false, follow: false },
 }
 
 export default function LoginPage() {

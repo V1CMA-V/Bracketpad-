@@ -3,8 +3,10 @@ import { Hero } from '@/components/tournaments/hero'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Torneos · Bandeja',
-  description: 'Todos los torneos de pádel disponibles en la comunidad.',
+  title: 'Torneos',
+  description:
+    'Explora todos los torneos de pádel de la comunidad: plazas abiertas, categorías, cuadros y resultados en vivo.',
+  alternates: { canonical: '/torneos' },
 }
 
 export default function TorneosPage() {

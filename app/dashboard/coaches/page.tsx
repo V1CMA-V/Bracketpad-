@@ -12,7 +12,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Coaches del club · Bandeja',
+  title: 'Coaches del club',
 }
 
 export default async function CoachesPage() {

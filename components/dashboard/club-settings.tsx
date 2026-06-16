@@ -487,7 +487,7 @@ export function ClubSettings({
   const errors: ClubFieldErrors = state.fieldErrors ?? {}
   const { pct, todos } = completionFor(club)
 
-  const publicUrl = `https://bandeja.es/c/${club.slug}`
+  const publicUrl = `https://bandeja.es/clubs/${club.slug}`
 
   return (
     <>

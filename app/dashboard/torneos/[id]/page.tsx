@@ -55,7 +55,7 @@ export async function generateMetadata({
     where: { id },
     select: { name: true },
   })
-  return { title: `${tournament?.name ?? 'Torneo'} · Bandeja` }
+  return { title: `${tournament?.name ?? 'Torneo'}` }
 }
 
 function DataRow({ label, value }: { label: string; value: string }) {

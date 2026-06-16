@@ -1,14 +1,14 @@
 import { Plus } from 'lucide-react'
 import { SectionHeader } from '../ui/section-header'
 
-type FaqItem = {
+export type FaqItem = {
   number: string
   category: string
   question: string
   answer: string
 }
 
-const faqs: FaqItem[] = [
+export const faqs: FaqItem[] = [
   {
     number: '01',
     category: 'Inscripción',

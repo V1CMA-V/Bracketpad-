@@ -13,7 +13,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Ligas · Bandeja',
+  title: 'Ligas',
 }
 
 // Timestamp real (`createdAt`): hora local.

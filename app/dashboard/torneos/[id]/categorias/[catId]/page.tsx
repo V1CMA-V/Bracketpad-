@@ -15,6 +15,7 @@ import {
   categoryLabel,
   drawTypeLabels,
 } from '@/lib/tournaments'
+import { clubDateKey, clubTimeLabel, formatInClubTz } from '@/lib/timezone'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -98,14 +99,106 @@ export default async function TorneoCategoriaPage({
     bucket.push({ id: t.id, label, seed: t.seed })
     groupMap.set(t.groupNumber, bucket)
   }
-  const groups: GroupData[] = [...groupMap.entries()]
+  const groupsBase = [...groupMap.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([groupNumber, groupTeams]) => ({
       groupNumber,
-      teams: groupTeams.sort(
-        (a, b) => (a.seed ?? 9999) - (b.seed ?? 9999),
-      ),
+      teams: groupTeams.sort((a, b) => (a.seed ?? 9999) - (b.seed ?? 9999)),
     }))
+
+  // Posición (1-based) de cada pareja dentro de su grupo, para nombrar los
+  // enfrentamientos del round-robin de forma compacta (p. ej. «1 vs 2»).
+  const posByGroup = new Map<number, Map<string, number>>()
+  for (const g of groupsBase) {
+    const m = new Map<string, number>()
+    g.teams.forEach((t, i) => m.set(t.id, i + 1))
+    posByGroup.set(g.groupNumber, m)
+  }
+
+  // Partidos de la fase de grupos (creados al generar). Se mapean a posiciones.
+  const groupMatches = await prisma.match.findMany({
+    where: { categoryId: category.id, groupNumber: { not: null } },
+    orderBy: [{ groupNumber: 'asc' }, { createdAt: 'asc' }],
+    select: {
+      id: true,
+      groupNumber: true,
+      status: true,
+      winnerSide: true,
+      scheduledAt: true,
+      courtId: true,
+      court: { select: { name: true } },
+      sides: { select: { side: true, teamId: true } },
+      sets: {
+        orderBy: { setNumber: 'asc' },
+        select: {
+          gamesA: true,
+          gamesB: true,
+          tiebreakA: true,
+          tiebreakB: true,
+        },
+      },
+    },
+  })
+
+  const courts = await prisma.court.findMany({
+    where: { clubId: club.id, isActive: true },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true },
+  })
+
+  // Etiqueta de cada pareja por su id (para nombrar las parejas en la captura).
+  const labelByTeamId = new Map<string, string>()
+  for (const t of category.teams) {
+    labelByTeamId.set(
+      t.id,
+      t.members.map((m) => m.player.fullName).join(' / ') || 'Pareja sin nombre',
+    )
+  }
+
+  const fixturesByGroup = new Map<number, GroupData['matches']>()
+  for (const match of groupMatches) {
+    if (match.groupNumber == null) continue
+    const posMap = posByGroup.get(match.groupNumber)
+    if (!posMap) continue
+    const a = match.sides.find((s) => s.side === 'A')?.teamId
+    const b = match.sides.find((s) => s.side === 'B')?.teamId
+    const aPos = a ? posMap.get(a) : undefined
+    const bPos = b ? posMap.get(b) : undefined
+    if (aPos == null || bPos == null) continue
+    const arr = fixturesByGroup.get(match.groupNumber) ?? []
+    const scheduleLabel = match.scheduledAt
+      ? `${formatInClubTz(match.scheduledAt, 'd MMM HH:mm')}${
+          match.court ? ` · ${match.court.name}` : ''
+        }`
+      : null
+    arr.push({
+      id: match.id,
+      aPos,
+      bPos,
+      aLabel: (a && labelByTeamId.get(a)) || '—',
+      bLabel: (b && labelByTeamId.get(b)) || '—',
+      status: match.status,
+      winner: match.winnerSide ?? null,
+      sets: match.sets.map((s) => ({
+        gamesA: s.gamesA,
+        gamesB: s.gamesB,
+        tiebreakA: s.tiebreakA,
+        tiebreakB: s.tiebreakB,
+      })),
+      date: match.scheduledAt ? clubDateKey(match.scheduledAt) : '',
+      time: match.scheduledAt ? clubTimeLabel(match.scheduledAt) : '',
+      courtId: match.courtId,
+      scheduleLabel,
+    })
+    fixturesByGroup.set(match.groupNumber, arr)
+  }
+
+  const groups: GroupData[] = groupsBase.map((g) => ({
+    ...g,
+    matches: (fixturesByGroup.get(g.groupNumber) ?? []).sort(
+      (x, y) => x.aPos - y.aPos || x.bPos - y.bPos,
+    ),
+  }))
 
   // Parejas activas que aún no están en ningún grupo (nuevas o quitadas).
   const unassignedTeams = category.teams
@@ -171,6 +264,9 @@ export default async function TorneoCategoriaPage({
                 groups={groups}
                 unassignedTeams={unassignedTeams}
                 advancePerGroup={category.advancePerGroup}
+                bestOfSets={category.bestOfSets}
+                tiebreakAt={category.tiebreakAt}
+                courts={courts}
               />
             )}
           </div>

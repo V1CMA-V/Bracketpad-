@@ -92,3 +92,106 @@ export function roundRobinMatchCount(m: number): number {
 export function recommendAdvance(minGroupSize: number): number {
   return clamp(2, 1, Math.max(1, minGroupSize))
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Tabla de posiciones de un grupo                                           */
+/* -------------------------------------------------------------------------- */
+
+export type GroupStandingRow = {
+  pos: number // posición (1-based) de la pareja dentro del grupo
+  played: number
+  wins: number
+  losses: number
+  setsFor: number
+  setsAgainst: number
+  gamesFor: number
+  gamesAgainst: number
+}
+
+/** Datos mínimos de un enfrentamiento para computar posiciones. */
+export type StandingFixture = {
+  aPos: number
+  bPos: number
+  status: string
+  winner: 'A' | 'B' | null
+  sets: { gamesA: number; gamesB: number }[]
+}
+
+/**
+ * Orden de la tabla: más victorias, luego mejor diferencia de sets y, como
+ * último criterio, mejor diferencia de juegos. Los empates se resuelven de
+ * forma estable por la posición de siembra (no se aplica enfrentamiento directo).
+ */
+export function compareGroupStandings(
+  a: GroupStandingRow,
+  b: GroupStandingRow,
+): number {
+  if (b.wins !== a.wins) return b.wins - a.wins
+  const setDiff = b.setsFor - b.setsAgainst - (a.setsFor - a.setsAgainst)
+  if (setDiff !== 0) return setDiff
+  const gameDiff = b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst)
+  if (gameDiff !== 0) return gameDiff
+  return a.pos - b.pos
+}
+
+/**
+ * Calcula la tabla de posiciones de un grupo a partir de los enfrentamientos
+ * finalizados. Solo cuentan los partidos con resultado; el orden lo decide
+ * `compareGroupStandings`.
+ */
+export function computeGroupStandings(
+  positions: number[],
+  fixtures: StandingFixture[],
+): GroupStandingRow[] {
+  const rows = new Map<number, GroupStandingRow>()
+  for (const pos of positions) {
+    rows.set(pos, {
+      pos,
+      played: 0,
+      wins: 0,
+      losses: 0,
+      setsFor: 0,
+      setsAgainst: 0,
+      gamesFor: 0,
+      gamesAgainst: 0,
+    })
+  }
+
+  for (const f of fixtures) {
+    if (f.status !== 'finished' || !f.winner) continue
+    const a = rows.get(f.aPos)
+    const b = rows.get(f.bPos)
+    if (!a || !b) continue
+
+    let setsA = 0
+    let setsB = 0
+    let gamesA = 0
+    let gamesB = 0
+    for (const s of f.sets) {
+      gamesA += s.gamesA
+      gamesB += s.gamesB
+      if (s.gamesA > s.gamesB) setsA += 1
+      else if (s.gamesB > s.gamesA) setsB += 1
+    }
+
+    a.played += 1
+    b.played += 1
+    a.setsFor += setsA
+    a.setsAgainst += setsB
+    a.gamesFor += gamesA
+    a.gamesAgainst += gamesB
+    b.setsFor += setsB
+    b.setsAgainst += setsA
+    b.gamesFor += gamesB
+    b.gamesAgainst += gamesA
+    if (f.winner === 'A') {
+      a.wins += 1
+      b.losses += 1
+    } else {
+      b.wins += 1
+      a.losses += 1
+    }
+  }
+
+  return [...rows.values()].sort(compareGroupStandings)
+}

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   MoveRight,
@@ -9,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
@@ -20,7 +22,23 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
+import {
+  clearMatchResult,
+  saveMatchResult,
+  setMatchSchedule,
+} from '@/app/dashboard/torneos/[id]/categorias/[catId]/actions'
+import type { SetScore } from '@/lib/match-results'
+import {
   clamp,
+  computeGroupStandings,
   maxGroupCount,
   planGroups,
   recommendAdvance,
@@ -35,9 +53,36 @@ import {
 
 export type GroupTeam = { id: string; label: string; seed: number | null }
 
+export type FixtureSet = {
+  gamesA: number
+  gamesB: number
+  tiebreakA: number | null
+  tiebreakB: number | null
+}
+
+/** Enfrentamiento del round-robin, referido a la posición de cada pareja (1-based). */
+export type GroupFixture = {
+  id: string
+  aPos: number
+  bPos: number
+  aLabel: string
+  bLabel: string
+  status: string
+  winner: 'A' | 'B' | null
+  sets: FixtureSet[]
+  // Programación (hora del club): vacío = sin programar.
+  date: string
+  time: string
+  courtId: string | null
+  scheduleLabel: string | null
+}
+
+export type CourtOption = { id: string; name: string }
+
 export type GroupData = {
   groupNumber: number
   teams: GroupTeam[]
+  matches: GroupFixture[]
 }
 
 /**
@@ -292,6 +337,487 @@ function Generator({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Captura de resultado de un enfrentamiento                                 */
+/* -------------------------------------------------------------------------- */
+
+const cellCls =
+  'h-11 w-14 rounded-md border border-border bg-input/30 text-center text-base text-foreground tabular-nums outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+
+const cellSmCls =
+  'h-9 w-12 rounded-md border border-border bg-input/30 text-center text-sm text-foreground tabular-nums outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+
+const inputCls =
+  'h-9 w-full rounded-md border border-border bg-input/30 px-3 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+
+type SetRow = { a: string; b: string; ta: string; tb: string }
+
+/** ¿El marcador de juegos del set se decidió en tie-break? (p. ej. 7-6). */
+function isTiebreakScore(a: number, b: number, tiebreakAt: number): boolean {
+  const hi = Math.max(a, b)
+  const lo = Math.min(a, b)
+  return lo === tiebreakAt && hi === tiebreakAt + 1
+}
+
+/** Resumen de un set: «6-3» o, con tie-break, «7-6(1)» (puntos del perdedor). */
+function formatSet(s: FixtureSet): string {
+  const base = `${s.gamesA}-${s.gamesB}`
+  if (s.tiebreakA == null || s.tiebreakB == null) return base
+  return `${base}(${Math.min(s.tiebreakA, s.tiebreakB)})`
+}
+
+/** Badge con el número de posición de una pareja, resaltado si ganó. */
+function PosBadge({ pos, isWinner }: { pos: number; isWinner: boolean }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex size-5 items-center justify-center rounded font-mono text-[11px] tabular-nums',
+        isWinner ? 'bg-forest text-cream' : 'bg-muted text-muted-foreground',
+      )}
+    >
+      {pos}
+    </span>
+  )
+}
+
+function buildRows(fixture: GroupFixture, bestOfSets: number): SetRow[] {
+  return Array.from({ length: bestOfSets }, (_, i) => {
+    const s = fixture.sets[i]
+    return {
+      a: s ? String(s.gamesA) : '',
+      b: s ? String(s.gamesB) : '',
+      ta: s?.tiebreakA != null ? String(s.tiebreakA) : '',
+      tb: s?.tiebreakB != null ? String(s.tiebreakB) : '',
+    }
+  })
+}
+
+function FixtureRow({
+  fixture,
+  groupNumber,
+  bestOfSets,
+  tiebreakAt,
+  courts,
+}: {
+  fixture: GroupFixture
+  groupNumber: number
+  bestOfSets: number
+  tiebreakAt: number
+  courts: CourtOption[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<SetRow[]>(() => buildRows(fixture, bestOfSets))
+  const [date, setDate] = useState(fixture.date)
+  const [time, setTime] = useState(fixture.time)
+  const [courtId, setCourtId] = useState(fixture.courtId ?? '')
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  const finished = fixture.status === 'finished'
+
+  // Reinicia los campos con los datos más recientes cada vez que se abre.
+  const onOpenChange = (o: boolean) => {
+    if (o) {
+      setRows(buildRows(fixture, bestOfSets))
+      setDate(fixture.date)
+      setTime(fixture.time)
+      setCourtId(fixture.courtId ?? '')
+      setError(null)
+    }
+    setOpen(o)
+  }
+
+  const saveSchedule = () => {
+    setError(null)
+    startTransition(async () => {
+      const res = await setMatchSchedule(fixture.id, { date, time, courtId })
+      if (res?.error) setError(res.error)
+      else setOpen(false)
+    })
+  }
+
+  const setCell = (i: number, key: keyof SetRow, v: string) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [key]: v } : r)))
+
+  const save = () => {
+    setError(null)
+    const sets: SetScore[] = rows.map((r) => {
+      const gamesA = r.a === '' ? 0 : Number(r.a)
+      const gamesB = r.b === '' ? 0 : Number(r.b)
+      // El tie-break solo se guarda si el set realmente se decidió en él.
+      const inTiebreak = isTiebreakScore(gamesA, gamesB, tiebreakAt)
+      return {
+        gamesA,
+        gamesB,
+        tiebreakA: inTiebreak && r.ta !== '' ? Number(r.ta) : null,
+        tiebreakB: inTiebreak && r.tb !== '' ? Number(r.tb) : null,
+      }
+    })
+    startTransition(async () => {
+      const res = await saveMatchResult(fixture.id, sets)
+      if (res?.error) setError(res.error)
+      else setOpen(false)
+    })
+  }
+
+  const clear = () => {
+    setError(null)
+    startTransition(async () => {
+      const res = await clearMatchResult(fixture.id)
+      if (res?.error) setError(res.error)
+      else setOpen(false)
+    })
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onOpenChange(true)}
+        className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
+      >
+        <span className="flex shrink-0 items-center gap-1.5">
+          <PosBadge pos={fixture.aPos} isWinner={fixture.winner === 'A'} />
+          <span className="font-mono text-[10px] text-muted-foreground">vs</span>
+          <PosBadge pos={fixture.bPos} isWinner={fixture.winner === 'B'} />
+        </span>
+        {fixture.scheduleLabel && (
+          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+            {fixture.scheduleLabel}
+          </span>
+        )}
+        {finished ? (
+          <span className="ml-auto shrink-0 font-mono text-[11px] text-foreground tabular-nums">
+            {fixture.sets.map(formatSet).join('  ')}
+          </span>
+        ) : (
+          <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            Capturar
+          </span>
+        )}
+      </button>
+
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" className="gap-0">
+          <SheetHeader>
+            <SheetTitle>Grupo {groupNumber} · Resultado</SheetTitle>
+            <SheetDescription>
+              Al mejor de {bestOfSets} sets. Anota los juegos de cada set.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-6">
+            {/* Parejas */}
+            <div className="space-y-2 rounded-lg border border-border bg-card p-4">
+              {(['A', 'B'] as const).map((side) => (
+                <div key={side} className="flex items-center gap-2.5">
+                  <span
+                    className={cn(
+                      'flex size-5 shrink-0 items-center justify-center rounded font-mono text-[10px]',
+                      fixture.winner === side
+                        ? 'bg-forest text-cream'
+                        : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {side}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                    {side === 'A' ? fixture.aLabel : fixture.bLabel}
+                  </span>
+                  {fixture.winner === side && (
+                    <Check className="size-4 shrink-0 text-forest" strokeWidth={2.5} />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Programación: fecha, hora y cancha */}
+            <div className="mt-5">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Programación
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className={inputCls}
+                  aria-label="Fecha del partido"
+                />
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className={inputCls}
+                  aria-label="Hora del partido"
+                />
+              </div>
+              {courts.length > 0 && (
+                <select
+                  value={courtId}
+                  onChange={(e) => setCourtId(e.target.value)}
+                  className={cn(inputCls, 'mt-3')}
+                  aria-label="Cancha"
+                >
+                  <option value="">Sin cancha asignada</option>
+                  {courts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saveSchedule}
+                disabled={pending}
+                className="mt-3 h-9 rounded-md text-sm"
+              >
+                {pending ? 'Guardando…' : 'Guardar programación'}
+              </Button>
+            </div>
+
+            {/* Resultado */}
+            <p className="mt-6 border-t border-border pt-5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Resultado
+            </p>
+            <div className="mt-3 space-y-4">
+              {rows.map((r, i) => {
+                const aNum = r.a === '' ? 0 : Number(r.a)
+                const bNum = r.b === '' ? 0 : Number(r.b)
+                const showTiebreak = isTiebreakScore(aNum, bNum, tiebreakAt)
+                return (
+                  <div key={i} className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <span className="w-12 shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Set {i + 1}
+                      </span>
+                      <input
+                        inputMode="numeric"
+                        value={r.a}
+                        onChange={(e) =>
+                          setCell(i, 'a', e.target.value.replace(/\D/g, ''))
+                        }
+                        placeholder="0"
+                        className={cellCls}
+                        aria-label={`Set ${i + 1}, juegos pareja A`}
+                      />
+                      <span className="text-muted-foreground">–</span>
+                      <input
+                        inputMode="numeric"
+                        value={r.b}
+                        onChange={(e) =>
+                          setCell(i, 'b', e.target.value.replace(/\D/g, ''))
+                        }
+                        placeholder="0"
+                        className={cellCls}
+                        aria-label={`Set ${i + 1}, juegos pareja B`}
+                      />
+                    </div>
+
+                    {/* Tie-break: aparece al llegar a {tiebreakAt}-{tiebreakAt} */}
+                    {showTiebreak && (
+                      <div className="flex items-center gap-3 pl-[60px]">
+                        <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-ochre">
+                          Tie-break
+                        </span>
+                        <input
+                          inputMode="numeric"
+                          value={r.ta}
+                          onChange={(e) =>
+                            setCell(i, 'ta', e.target.value.replace(/\D/g, ''))
+                          }
+                          placeholder="7"
+                          className={cellSmCls}
+                          aria-label={`Set ${i + 1}, tie-break pareja A`}
+                        />
+                        <span className="text-muted-foreground">–</span>
+                        <input
+                          inputMode="numeric"
+                          value={r.tb}
+                          onChange={(e) =>
+                            setCell(i, 'tb', e.target.value.replace(/\D/g, ''))
+                          }
+                          placeholder="1"
+                          className={cellSmCls}
+                          aria-label={`Set ${i + 1}, tie-break pareja B`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {error && (
+              <p className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <SheetFooter>
+            <Button
+              type="button"
+              onClick={save}
+              disabled={pending}
+              className="h-9 rounded-md text-sm"
+            >
+              {pending ? 'Guardando…' : 'Guardar resultado'}
+            </Button>
+            {finished && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={clear}
+                disabled={pending}
+                className="h-9 rounded-md text-sm"
+              >
+                Borrar resultado
+              </Button>
+            )}
+            <SheetClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-9 rounded-md text-sm text-muted-foreground"
+              >
+                Cancelar
+              </Button>
+            </SheetClose>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    </li>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Tabla de posiciones por grupo                                             */
+/* -------------------------------------------------------------------------- */
+
+const fmtDiff = (n: number) => `${n > 0 ? '+' : ''}${n}`
+
+function GroupStandingsSection({
+  groups,
+  advancePerGroup,
+}: {
+  groups: GroupData[]
+  advancePerGroup: number | null
+}) {
+  const hasResults = groups.some((g) =>
+    g.matches.some((m) => m.status === 'finished'),
+  )
+  if (!hasResults) return null
+
+  const advance = advancePerGroup ?? 0
+
+  return (
+    <div className="mt-8 border-t border-border pt-6">
+      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        Posiciones
+      </p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {groups.map((group) => {
+          const positions = group.teams.map((_, i) => i + 1)
+          const standings = computeGroupStandings(positions, group.matches)
+          return (
+            <div
+              key={group.groupNumber}
+              className="rounded-xl border border-border bg-card p-4"
+            >
+              <div className="flex items-center justify-between">
+                <p className="font-serif text-lg text-foreground">
+                  Grupo {group.groupNumber}
+                </p>
+                {advance > 0 && (
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/70">
+                    <span className="text-forest">▍</span> avanzan {advance}
+                  </span>
+                )}
+              </div>
+              <table className="mt-3 w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border font-mono text-[9px] uppercase tracking-widest text-muted-foreground [&>th]:pb-2 [&>th]:font-normal">
+                    <th className="w-5 text-left">#</th>
+                    <th className="text-left">Pareja</th>
+                    <th className="w-8 text-right">PJ</th>
+                    <th className="w-10 text-right">G-P</th>
+                    <th className="w-9 text-right">±S</th>
+                    <th className="w-9 text-right">±J</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {standings.map((row, i) => {
+                    const advancing = i < advance
+                    const label = group.teams[row.pos - 1]?.label ?? '—'
+                    const setDiff = row.setsFor - row.setsAgainst
+                    const gameDiff = row.gamesFor - row.gamesAgainst
+                    return (
+                      <tr
+                        key={row.pos}
+                        className={cn(
+                          'border-b border-border last:border-0 [&>td]:py-2',
+                          advancing && 'bg-forest/5',
+                        )}
+                      >
+                        <td
+                          className={cn(
+                            'font-serif tabular-nums',
+                            advancing
+                              ? 'text-forest'
+                              : 'text-muted-foreground/70',
+                          )}
+                        >
+                          {i + 1}
+                        </td>
+                        <td className="max-w-0 truncate text-foreground">
+                          {label}
+                        </td>
+                        <td className="text-right font-mono text-muted-foreground tabular-nums">
+                          {row.played}
+                        </td>
+                        <td className="text-right font-mono tabular-nums">
+                          {row.wins}-{row.losses}
+                        </td>
+                        <td
+                          className={cn(
+                            'text-right font-mono tabular-nums',
+                            setDiff > 0
+                              ? 'text-forest'
+                              : setDiff < 0
+                                ? 'text-terracotta'
+                                : 'text-muted-foreground',
+                          )}
+                        >
+                          {fmtDiff(setDiff)}
+                        </td>
+                        <td
+                          className={cn(
+                            'text-right font-mono tabular-nums',
+                            gameDiff > 0
+                              ? 'text-forest'
+                              : gameDiff < 0
+                                ? 'text-terracotta'
+                                : 'text-muted-foreground',
+                          )}
+                        >
+                          {fmtDiff(gameDiff)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Grupos generados                                                          */
 /* -------------------------------------------------------------------------- */
 
@@ -300,11 +826,17 @@ function GeneratedGroups({
   groups,
   unassignedTeams,
   advancePerGroup,
+  bestOfSets,
+  tiebreakAt,
+  courts,
 }: {
   categoryId: string
   groups: GroupData[]
   unassignedTeams: GroupTeam[]
   advancePerGroup: number | null
+  bestOfSets: number
+  tiebreakAt: number
+  courts: CourtOption[]
 }) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -322,7 +854,8 @@ function GeneratedGroups({
     <div className="mt-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {groups.length} grupo{groups.length === 1 ? '' : 's'}
+          {groups.length} grupo{groups.length === 1 ? '' : 's'} · todos contra
+          todos al mejor de {bestOfSets} sets
           {advancePerGroup != null && (
             <>
               {' · '}
@@ -398,9 +931,33 @@ function GeneratedGroups({
                 </li>
               ))}
             </ul>
+
+            {/* Enfrentamientos del grupo (round-robin): clic para capturar */}
+            {group.matches.length > 0 && (
+              <div className="mt-3 border-t border-border pt-3">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Enfrentamientos
+                </p>
+                <ul className="mt-2 space-y-0.5">
+                  {group.matches.map((m) => (
+                    <FixtureRow
+                      key={m.id}
+                      fixture={m}
+                      groupNumber={group.groupNumber}
+                      bestOfSets={bestOfSets}
+                      tiebreakAt={tiebreakAt}
+                      courts={courts}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ))}
       </div>
+
+      {/* Tabla de posiciones (aparece al haber al menos un resultado) */}
+      <GroupStandingsSection groups={groups} advancePerGroup={advancePerGroup} />
 
       {/* Parejas sin asignar (nuevas inscripciones o quitadas de un grupo) */}
       {unassignedTeams.length > 0 && (
@@ -447,12 +1004,18 @@ export function TournamentGroupGenerator({
   groups,
   unassignedTeams,
   advancePerGroup,
+  bestOfSets,
+  tiebreakAt,
+  courts,
 }: {
   categoryId: string
   activeTeamCount: number
   groups: GroupData[]
   unassignedTeams: GroupTeam[]
   advancePerGroup: number | null
+  bestOfSets: number
+  tiebreakAt: number
+  courts: CourtOption[]
 }) {
   const generated = groups.length > 0
 
@@ -480,6 +1043,9 @@ export function TournamentGroupGenerator({
           groups={groups}
           unassignedTeams={unassignedTeams}
           advancePerGroup={advancePerGroup}
+          bestOfSets={bestOfSets}
+          tiebreakAt={tiebreakAt}
+          courts={courts}
         />
       ) : (
         <Generator categoryId={categoryId} teamCount={activeTeamCount} />

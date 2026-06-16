@@ -14,6 +14,8 @@ import {
   roundRobinPairs,
   snakeGroupNumber,
 } from '@/lib/tournament-groups'
+import { decideResult, type SetScore } from '@/lib/match-results'
+import { clubDateAndTimeToUtc } from '@/lib/timezone'
 
 export type TeamState = {
   success?: boolean
@@ -416,5 +418,169 @@ export async function setTeamGroup(
   })
 
   revalidateCategory(team.category.tournamentId, team.categoryId)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Captura de resultados                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** Partido de torneo del club gestionado, con su config de sets y sus lados. */
+async function findOwnedMatch(matchId: string) {
+  const club = await getManagedClub()
+  if (!club) return null
+  return prisma.match.findFirst({
+    where: { id: matchId, clubId: club.id, contextType: 'tournament' },
+    select: {
+      id: true,
+      clubId: true,
+      categoryId: true,
+      category: { select: { tournamentId: true, bestOfSets: true } },
+    },
+  })
+}
+
+/**
+ * Guarda el resultado de un partido (set por set). Valida que el marcador defina
+ * un ganador al mejor de N sets de la categoría; reemplaza los sets previos y
+ * marca el partido como finalizado con su pareja ganadora.
+ */
+export async function saveMatchResult(
+  matchId: string,
+  sets: SetScore[],
+): Promise<GroupState> {
+  const match = await findOwnedMatch(matchId)
+  if (!match) return { error: 'Partido no encontrado.' }
+  if (!match.category || !match.categoryId) {
+    return { error: 'El partido no pertenece a una categoría.' }
+  }
+
+  // Normaliza el marcador y descarta filas vacías (ambos juegos en 0).
+  const cleaned: SetScore[] = sets
+    .map((s) => ({
+      gamesA: Math.trunc(Number(s.gamesA)),
+      gamesB: Math.trunc(Number(s.gamesB)),
+      tiebreakA: s.tiebreakA == null ? null : Math.trunc(Number(s.tiebreakA)),
+      tiebreakB: s.tiebreakB == null ? null : Math.trunc(Number(s.tiebreakB)),
+    }))
+    .filter((s) => !(s.gamesA === 0 && s.gamesB === 0))
+
+  const decided = decideResult(cleaned, match.category.bestOfSets)
+  if (!decided.ok) return { error: decided.error }
+
+  // Tie-break opcional: si se captura, debe ser coherente con el set.
+  for (let i = 0; i < cleaned.length; i++) {
+    const s = cleaned[i]
+    if (s.tiebreakA == null && s.tiebreakB == null) continue
+    if (s.tiebreakA == null || s.tiebreakB == null) {
+      return { error: `Set ${i + 1}: captura los dos puntos del tie-break.` }
+    }
+    if (
+      !Number.isInteger(s.tiebreakA) ||
+      !Number.isInteger(s.tiebreakB) ||
+      s.tiebreakA < 0 ||
+      s.tiebreakB < 0 ||
+      s.tiebreakA > 99 ||
+      s.tiebreakB > 99
+    ) {
+      return { error: `Set ${i + 1}: tie-break inválido.` }
+    }
+    if (s.tiebreakA === s.tiebreakB) {
+      return { error: `Set ${i + 1}: el tie-break no puede quedar empatado.` }
+    }
+    // Quien ganó el set (más juegos) debe tener el tie-break más alto.
+    if (s.gamesA > s.gamesB !== s.tiebreakA > s.tiebreakB) {
+      return {
+        error: `Set ${i + 1}: el tie-break no coincide con el ganador del set.`,
+      }
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.matchSet.deleteMany({ where: { matchId } }),
+    prisma.matchSet.createMany({
+      data: cleaned.map((s, i) => ({
+        matchId,
+        setNumber: i + 1,
+        gamesA: s.gamesA,
+        gamesB: s.gamesB,
+        tiebreakA: s.tiebreakA ?? null,
+        tiebreakB: s.tiebreakB ?? null,
+      })),
+    }),
+    prisma.match.update({
+      where: { id: matchId },
+      data: { status: 'finished', winnerSide: decided.winner },
+    }),
+  ])
+
+  revalidateCategory(match.category.tournamentId, match.categoryId)
+  return { success: true }
+}
+
+/** Borra el resultado de un partido: vuelve a «programado» y quita sus sets. */
+export async function clearMatchResult(matchId: string): Promise<GroupState> {
+  const match = await findOwnedMatch(matchId)
+  if (!match) return { error: 'Partido no encontrado.' }
+  if (!match.category || !match.categoryId) {
+    return { error: 'El partido no pertenece a una categoría.' }
+  }
+
+  await prisma.$transaction([
+    prisma.matchSet.deleteMany({ where: { matchId } }),
+    prisma.match.update({
+      where: { id: matchId },
+      data: { status: 'scheduled', winnerSide: null },
+    }),
+  ])
+
+  revalidateCategory(match.category.tournamentId, match.categoryId)
+  return { success: true }
+}
+
+/**
+ * Fija (o limpia) la fecha, hora y cancha de un partido. La fecha y hora se
+ * interpretan en la zona horaria del club. Fecha y hora van juntas: ambas vacías
+ * dejan el partido sin programar; vacíar la cancha lo deja sin cancha asignada.
+ */
+export async function setMatchSchedule(
+  matchId: string,
+  input: { date: string; time: string; courtId: string },
+): Promise<GroupState> {
+  const match = await findOwnedMatch(matchId)
+  if (!match) return { error: 'Partido no encontrado.' }
+  if (!match.category || !match.categoryId) {
+    return { error: 'El partido no pertenece a una categoría.' }
+  }
+
+  const date = (input.date ?? '').trim()
+  const time = (input.time ?? '').trim()
+  if ((date && !time) || (!date && time)) {
+    return { error: 'Indica la fecha y la hora juntas.' }
+  }
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { error: 'Fecha inválida.' }
+  }
+  if (time && !/^\d{2}:\d{2}$/.test(time)) {
+    return { error: 'Hora inválida.' }
+  }
+  const scheduledAt = date && time ? clubDateAndTimeToUtc(date, time) : null
+
+  // Cancha opcional: si se indica, debe ser una pista del club.
+  const courtId = (input.courtId ?? '').trim() || null
+  if (courtId) {
+    const court = await prisma.court.findFirst({
+      where: { id: courtId, clubId: match.clubId },
+      select: { id: true },
+    })
+    if (!court) return { error: 'Cancha no válida.' }
+  }
+
+  await prisma.match.update({
+    where: { id: matchId },
+    data: { scheduledAt, courtId },
+  })
+
+  revalidateCategory(match.category.tournamentId, match.categoryId)
   return { success: true }
 }

@@ -548,9 +548,15 @@ model TournamentCategory {
   goldenPoint  Boolean        @default(true) // punto de oro en deuce
   tiebreakAt   Int            @default(6) @db.SmallInt // juegos para tie-break
   // Configuración de la fase de grupos (solo aplica con drawType = groups_playoff):
-  // cuántas parejas integran cada grupo y cuántas avanzan a la fase final.
+  // cuántas parejas integran cada grupo y cuántas avanzan DIRECTO a la fase final.
   teamsPerGroup   Int? @db.SmallInt
   advancePerGroup Int? @db.SmallInt
+  // Configuración de la fase eliminatoria (se fija al generar la llave):
+  // `wildcardSlots` = comodines («mejores segundos» entre todos los grupos) que
+  // completan la llave hasta la siguiente potencia de 2. `thirdPlaceMatch` = si
+  // la llave incluye partido por el 3er puesto (perdedores de semifinales).
+  wildcardSlots   Int?    @db.SmallInt @default(0)
+  thirdPlaceMatch Boolean @default(false)
   // Premio de la categoría (texto libre): no es lo mismo ganar 5ta que 1ra, así
   // que cada categoría redacta su propio premio (efectivo, trofeo, productos…).
   prize        String?
@@ -591,6 +597,11 @@ model TournamentTeam {
   // generan los grupos; se reparte por siembra serpenteante según el cabeza de
   // serie. Al borrar/regenerar los grupos vuelve a null.
   groupNumber Int?      @db.SmallInt
+  // Avance deportivo (persistido para rendimiento). Null = sigue viva (o
+  // campeona). "groups" = no pasó de su grupo. "QF"|"SF"|...|"F"|"3P" = ronda
+  // de la eliminatoria donde fue eliminada. Se recalcula al generar la llave y
+  // al guardar/borrar resultados de la llave.
+  eliminatedInRound String?
   createdAt  DateTime   @default(now())
 
   category TournamentCategory     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -629,7 +640,13 @@ model Match {
   leagueRoundId String?
 
   categoryId   String?
+  // En torneos `groups_playoff`, ronda de la fase eliminatoria:
+  // "R32" | "R16" | "QF" | "SF" | "F" | "3P". Null en partidos de grupo.
   bracketRound String?
+  // Posición (0-based) del partido dentro de su ronda. Ordena la llave y permite
+  // el avance posicional: el ganador de los slots 2k y 2k+1 pasa al slot k de la
+  // ronda siguiente. Null en partidos de grupo.
+  bracketSlot  Int? @db.SmallInt
 
   // En ligas: grupo/nivel del partido. 1 = mejores, números mayores = niveles
   // inferiores. Ordena los partidos dentro de una jornada.
@@ -659,6 +676,7 @@ model Match {
 
   @@index([leagueId])
   @@index([categoryId])
+  @@index([categoryId, bracketRound])
   @@index([clubId, scheduledAt])
   @@index([leagueRoundId, groupNumber])
   @@map("match")

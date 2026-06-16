@@ -10,10 +10,18 @@ import { getManagedClub } from '@/lib/club'
 import { registerTeamSchema } from '@/lib/validations/team'
 import {
   clamp,
+  computeGroupStandings,
   maxGroupCount,
   roundRobinPairs,
   snakeGroupNumber,
+  type StandingFixture,
 } from '@/lib/tournament-groups'
+import {
+  bracketProgression,
+  buildBracketPlan,
+  selectQualifiers,
+  type TeamStanding,
+} from '@/lib/tournament-bracket'
 import { decideResult, type SetScore } from '@/lib/match-results'
 import { clubDateAndTimeToUtc } from '@/lib/timezone'
 
@@ -50,6 +58,7 @@ async function findOwnedCategory(categoryId: string) {
       clubId: true,
       maxTeams: true,
       drawType: true,
+      advancePerGroup: true,
     },
   })
   return category ? { category, club } : null
@@ -422,6 +431,241 @@ export async function setTeamGroup(
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Fase eliminatoria (llave)                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Calcula las posiciones (rank, victorias, dif. de sets y juegos) de cada pareja
+ * activa dentro de su grupo, a partir de los partidos de grupo finalizados.
+ * Reusa `computeGroupStandings`; devuelve una lista plana lista para la llave.
+ */
+async function computeCategoryStandings(
+  categoryId: string,
+): Promise<TeamStanding[]> {
+  const teams = await prisma.tournamentTeam.findMany({
+    where: { categoryId, groupNumber: { not: null }, status: { not: 'withdrawn' } },
+    select: { id: true, groupNumber: true },
+  })
+  const matches = await prisma.match.findMany({
+    where: { categoryId, groupNumber: { not: null } },
+    select: {
+      groupNumber: true,
+      status: true,
+      winnerSide: true,
+      sides: { select: { side: true, teamId: true } },
+      sets: { select: { gamesA: true, gamesB: true } },
+    },
+  })
+
+  // Parejas e índice posición→id por grupo (la posición solo nombra las filas).
+  const teamsByGroup = new Map<number, string[]>()
+  for (const t of teams) {
+    if (t.groupNumber == null) continue
+    const arr = teamsByGroup.get(t.groupNumber) ?? []
+    arr.push(t.id)
+    teamsByGroup.set(t.groupNumber, arr)
+  }
+
+  const result: TeamStanding[] = []
+  for (const [groupNumber, ids] of teamsByGroup) {
+    const posByTeam = new Map<string, number>()
+    ids.forEach((id, i) => posByTeam.set(id, i + 1))
+    const positions = ids.map((_, i) => i + 1)
+
+    const fixtures: StandingFixture[] = []
+    for (const m of matches) {
+      if (m.groupNumber !== groupNumber) continue
+      const a = m.sides.find((s) => s.side === 'A')?.teamId
+      const b = m.sides.find((s) => s.side === 'B')?.teamId
+      const aPos = a ? posByTeam.get(a) : undefined
+      const bPos = b ? posByTeam.get(b) : undefined
+      if (aPos == null || bPos == null) continue
+      fixtures.push({
+        aPos,
+        bPos,
+        status: m.status,
+        winner: m.winnerSide ?? null,
+        sets: m.sets.map((s) => ({ gamesA: s.gamesA, gamesB: s.gamesB })),
+      })
+    }
+
+    const rows = computeGroupStandings(positions, fixtures)
+    const teamByPos = new Map<number, string>()
+    posByTeam.forEach((pos, id) => teamByPos.set(pos, id))
+    rows.forEach((row, i) => {
+      const teamId = teamByPos.get(row.pos)
+      if (!teamId) return
+      result.push({
+        teamId,
+        groupNumber,
+        rankInGroup: i + 1,
+        wins: row.wins,
+        setDiff: row.setsFor - row.setsAgainst,
+        gameDiff: row.gamesFor - row.gamesAgainst,
+      })
+    })
+  }
+  return result
+}
+
+export type GenerateBracketInput = {
+  advancePerGroup: number
+  wildcardSlots: number
+  wildcardTeamIds: string[]
+  thirdPlace: boolean
+}
+
+/**
+ * Genera la fase eliminatoria: toma los clasificados directos de cada grupo + los
+ * comodines elegidos, los siembra en una llave de potencia de 2 (con byes para
+ * los mejores cuando no cuadra) y crea todos los partidos de la llave. Marca como
+ * eliminadas en grupos a las parejas que no clasificaron. Requiere que la fase de
+ * grupos esté completa y que no exista ya una llave.
+ */
+export async function generateBracket(
+  categoryId: string,
+  input: GenerateBracketInput,
+): Promise<GroupState> {
+  const owned = await findOwnedCategory(categoryId)
+  if (!owned) return { error: 'Categoría no encontrada.' }
+  const { category } = owned
+
+  if (category.drawType !== 'groups_playoff') {
+    return { error: 'Esta categoría no usa fase de grupos.' }
+  }
+
+  const groupMatches = await prisma.match.count({
+    where: { categoryId, groupNumber: { not: null } },
+  })
+  if (groupMatches === 0) {
+    return { error: 'Genera y juega la fase de grupos antes de armar la llave.' }
+  }
+  const pendingGroup = await prisma.match.count({
+    where: { categoryId, groupNumber: { not: null }, status: { not: 'finished' } },
+  })
+  if (pendingGroup > 0) {
+    return {
+      error: 'Faltan resultados de la fase de grupos; termínala antes de la llave.',
+    }
+  }
+  const existingBracket = await prisma.match.count({
+    where: { categoryId, bracketRound: { not: null } },
+  })
+  if (existingBracket > 0) {
+    return { error: 'Ya hay una llave generada. Bórrala antes de regenerar.' }
+  }
+
+  const advancePerGroup = clamp(Math.round(input.advancePerGroup), 1, 16)
+  const wildcardSlots = clamp(Math.round(input.wildcardSlots), 0, 64)
+
+  const standings = await computeCategoryStandings(categoryId)
+  if (standings.length < 2) {
+    return { error: 'Se necesitan al menos 2 parejas con grupos para armar la llave.' }
+  }
+
+  const sel = selectQualifiers(
+    standings,
+    advancePerGroup,
+    wildcardSlots,
+    input.wildcardTeamIds,
+  )
+  const qualifiers = [...sel.direct, ...sel.wildcards]
+  if (qualifiers.length < 2) {
+    return { error: 'Se necesitan al menos 2 clasificados para armar la llave.' }
+  }
+
+  const plan = buildBracketPlan({
+    direct: sel.direct,
+    wildcards: sel.wildcards,
+    bracketSize: sel.bracketSize,
+    thirdPlace: input.thirdPlace,
+  })
+
+  const qualifierIds = new Set(qualifiers.map((q) => q.teamId))
+  const activeTeams = await prisma.tournamentTeam.findMany({
+    where: { categoryId, status: { not: 'withdrawn' } },
+    select: { id: true },
+  })
+  const nonQualifiedIds = activeTeams
+    .map((t) => t.id)
+    .filter((id) => !qualifierIds.has(id))
+
+  await prisma.$transaction(async (tx) => {
+    for (const m of plan.matches) {
+      await tx.match.create({
+        data: {
+          clubId: category.clubId,
+          contextType: 'tournament',
+          categoryId,
+          bracketRound: m.round,
+          bracketSlot: m.slot,
+          status: 'scheduled',
+          sides: {
+            create: [
+              { side: 'A', teamId: m.teamA },
+              { side: 'B', teamId: m.teamB },
+            ],
+          },
+        },
+      })
+    }
+    await tx.tournamentCategory.update({
+      where: { id: categoryId },
+      data: {
+        wildcardSlots,
+        thirdPlaceMatch: input.thirdPlace && plan.rounds.includes('SF'),
+      },
+    })
+    if (nonQualifiedIds.length > 0) {
+      await tx.tournamentTeam.updateMany({
+        where: { id: { in: nonQualifiedIds } },
+        data: { eliminatedInRound: 'groups' },
+      })
+    }
+    await tx.tournamentTeam.updateMany({
+      where: { id: { in: [...qualifierIds] } },
+      data: { eliminatedInRound: null },
+    })
+  })
+
+  revalidateCategory(category.tournamentId, categoryId)
+  return { success: true }
+}
+
+/** Borra la fase eliminatoria (partidos + estado de avance) para regenerarla. */
+export async function clearBracket(categoryId: string): Promise<GroupState> {
+  const owned = await findOwnedCategory(categoryId)
+  if (!owned) return { error: 'Categoría no encontrada.' }
+  const { category } = owned
+
+  const finished = await prisma.match.count({
+    where: { categoryId, bracketRound: { not: null }, status: 'finished' },
+  })
+  if (finished > 0) {
+    return {
+      error: 'Hay partidos de la llave con resultado; no se puede borrar la llave.',
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.match.deleteMany({
+      where: { categoryId, bracketRound: { not: null } },
+    }),
+    prisma.tournamentTeam.updateMany({
+      where: { categoryId },
+      data: { eliminatedInRound: null },
+    }),
+    prisma.tournamentCategory.update({
+      where: { id: categoryId },
+      data: { wildcardSlots: 0, thirdPlaceMatch: false },
+    }),
+  ])
+
+  revalidateCategory(category.tournamentId, categoryId)
+  return { success: true }
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Captura de resultados                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -435,6 +679,10 @@ async function findOwnedMatch(matchId: string) {
       id: true,
       clubId: true,
       categoryId: true,
+      bracketRound: true,
+      bracketSlot: true,
+      winnerSide: true,
+      sides: { select: { side: true, teamId: true } },
       category: { select: { tournamentId: true, bestOfSets: true } },
     },
   })
@@ -496,9 +744,15 @@ export async function saveMatchResult(
     }
   }
 
-  await prisma.$transaction([
-    prisma.matchSet.deleteMany({ where: { matchId } }),
-    prisma.matchSet.createMany({
+  const categoryId = match.categoryId
+  const sideA = match.sides.find((s) => s.side === 'A')?.teamId ?? null
+  const sideB = match.sides.find((s) => s.side === 'B')?.teamId ?? null
+  const winnerTeamId = decided.winner === 'A' ? sideA : sideB
+  const loserTeamId = decided.winner === 'A' ? sideB : sideA
+
+  await prisma.$transaction(async (tx) => {
+    await tx.matchSet.deleteMany({ where: { matchId } })
+    await tx.matchSet.createMany({
       data: cleaned.map((s, i) => ({
         matchId,
         setNumber: i + 1,
@@ -507,12 +761,54 @@ export async function saveMatchResult(
         tiebreakA: s.tiebreakA ?? null,
         tiebreakB: s.tiebreakB ?? null,
       })),
-    }),
-    prisma.match.update({
+    })
+    await tx.match.update({
       where: { id: matchId },
       data: { status: 'finished', winnerSide: decided.winner },
-    }),
-  ])
+    })
+
+    // Partido de llave: el ganador avanza y el perdedor queda eliminado.
+    if (match.bracketRound && match.bracketSlot != null) {
+      const prog = bracketProgression(match.bracketRound, match.bracketSlot)
+      if (prog.winner && winnerTeamId) {
+        const next = await tx.match.findFirst({
+          where: {
+            categoryId,
+            bracketRound: prog.winner.round,
+            bracketSlot: prog.winner.slot,
+          },
+          select: { id: true },
+        })
+        if (next) {
+          await tx.matchSide.updateMany({
+            where: { matchId: next.id, side: prog.winner.side },
+            data: { teamId: winnerTeamId },
+          })
+        }
+      }
+      // El perdedor de semifinal baja al partido por el 3er lugar.
+      if (prog.loserToThirdPlace && loserTeamId) {
+        const tp = await tx.match.findFirst({
+          where: { categoryId, bracketRound: '3P', bracketSlot: 0 },
+          select: { id: true },
+        })
+        if (tp) {
+          await tx.matchSide.updateMany({
+            where: { matchId: tp.id, side: prog.loserToThirdPlace.side },
+            data: { teamId: loserTeamId },
+          })
+        }
+      }
+      // Estado eliminada: el perdedor cae en esta ronda. El 3er lugar solo
+      // reparte bronce, así que no cambia el estado (ya cayeron en semifinal).
+      if (loserTeamId && match.bracketRound !== '3P') {
+        await tx.tournamentTeam.update({
+          where: { id: loserTeamId },
+          data: { eliminatedInRound: match.bracketRound },
+        })
+      }
+    }
+  })
 
   revalidateCategory(match.category.tournamentId, match.categoryId)
   return { success: true }
@@ -526,13 +822,81 @@ export async function clearMatchResult(matchId: string): Promise<GroupState> {
     return { error: 'El partido no pertenece a una categoría.' }
   }
 
-  await prisma.$transaction([
-    prisma.matchSet.deleteMany({ where: { matchId } }),
-    prisma.match.update({
+  const categoryId = match.categoryId
+
+  // Partido de llave: revertir el avance del ganador y la eliminación del
+  // perdedor. No se puede borrar si el siguiente partido ya tiene resultado.
+  let nextMatchId: string | null = null
+  let thirdPlaceId: string | null = null
+  let loserTeamId: string | null = null
+  if (match.bracketRound && match.bracketSlot != null && match.winnerSide) {
+    const prog = bracketProgression(match.bracketRound, match.bracketSlot)
+    const loserSide = match.winnerSide === 'A' ? 'B' : 'A'
+    loserTeamId = match.sides.find((s) => s.side === loserSide)?.teamId ?? null
+
+    if (prog.winner) {
+      const next = await prisma.match.findFirst({
+        where: {
+          categoryId,
+          bracketRound: prog.winner.round,
+          bracketSlot: prog.winner.slot,
+        },
+        select: { id: true, status: true },
+      })
+      if (next?.status === 'finished') {
+        return {
+          error: 'El siguiente partido ya tiene resultado; bórralo antes.',
+        }
+      }
+      nextMatchId = next?.id ?? null
+    }
+    if (prog.loserToThirdPlace) {
+      const tp = await prisma.match.findFirst({
+        where: { categoryId, bracketRound: '3P', bracketSlot: 0 },
+        select: { id: true, status: true },
+      })
+      if (tp?.status === 'finished') {
+        return {
+          error: 'El partido por el 3er lugar ya tiene resultado; bórralo antes.',
+        }
+      }
+      thirdPlaceId = tp?.id ?? null
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.matchSet.deleteMany({ where: { matchId } })
+    await tx.match.update({
       where: { id: matchId },
       data: { status: 'scheduled', winnerSide: null },
-    }),
-  ])
+    })
+    // Quita al ganador del siguiente partido y al perdedor del 3er lugar.
+    if (nextMatchId && match.bracketRound && match.bracketSlot != null) {
+      const prog = bracketProgression(match.bracketRound, match.bracketSlot)
+      if (prog.winner) {
+        await tx.matchSide.updateMany({
+          where: { matchId: nextMatchId, side: prog.winner.side },
+          data: { teamId: null },
+        })
+      }
+    }
+    if (thirdPlaceId && match.bracketRound && match.bracketSlot != null) {
+      const prog = bracketProgression(match.bracketRound, match.bracketSlot)
+      if (prog.loserToThirdPlace) {
+        await tx.matchSide.updateMany({
+          where: { matchId: thirdPlaceId, side: prog.loserToThirdPlace.side },
+          data: { teamId: null },
+        })
+      }
+    }
+    // El perdedor vuelve a estar «en competencia».
+    if (loserTeamId && match.bracketRound && match.bracketRound !== '3P') {
+      await tx.tournamentTeam.update({
+        where: { id: loserTeamId },
+        data: { eliminatedInRound: null },
+      })
+    }
+  })
 
   revalidateCategory(match.category.tournamentId, match.categoryId)
   return { success: true }

@@ -11,6 +11,11 @@ import {
   type MatchState,
   type ReservationRow,
 } from '@/components/dashboard/reservation-list'
+import {
+  ScheduledMatchBlock,
+  type MatchDetail,
+} from '@/components/dashboard/schedule-match-block'
+import { roundLabel } from '@/lib/tournament-bracket'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getManagedClub } from '@/lib/club'
@@ -77,6 +82,8 @@ type ScheduledMatch = {
   // tooltip al pasar el ratón.
   href?: string
   title: string
+  // Detalle de solo lectura para el panel al hacer clic (solo en partidos).
+  detail?: MatchDetail
 }
 
 type CourtRow = {
@@ -153,11 +160,32 @@ async function getSchedule(clubId: string, dayKey: string) {
       include: {
         league: { select: { name: true, playKind: true } },
         leagueRound: { select: { roundNumber: true } },
-        category: { select: { name: true } },
+        category: {
+          select: {
+            name: true,
+            tournament: { select: { id: true, name: true } },
+          },
+        },
+        sets: {
+          orderBy: { setNumber: 'asc' },
+          select: {
+            gamesA: true,
+            gamesB: true,
+            tiebreakA: true,
+            tiebreakB: true,
+          },
+        },
         sides: {
           orderBy: { side: 'asc' },
           include: {
-            team: { select: { name: true } },
+            team: {
+              select: {
+                name: true,
+                members: {
+                  select: { player: { select: { fullName: true } } },
+                },
+              },
+            },
             players: {
               include: { player: { select: { fullName: true } } },
             },
@@ -210,10 +238,44 @@ type RawMatch = Awaited<ReturnType<typeof getSchedule>>['matches'][number]
 /** Etiqueta de un lado del partido (apellidos de los jugadores o nombre del equipo). */
 function sideLabel(side: RawMatch['sides'][number] | undefined): string {
   if (!side) return '—'
+  // Ligas individuales: jugadores asignados explícitamente a este lado.
   if (side.players.length > 0) {
     return side.players.map((p) => surname(p.player.fullName)).join(' / ')
   }
-  return side.team?.name ?? '—'
+  // Torneos (grupos y llave): la pareja se identifica por sus integrantes. En la
+  // llave un lado puede estar aún por definir (sin equipo): se muestra «—».
+  if (side.team) {
+    if (side.team.members.length > 0) {
+      return side.team.members.map((m) => surname(m.player.fullName)).join(' / ')
+    }
+    if (side.team.name) return side.team.name
+  }
+  return '—'
+}
+
+/** Como `sideLabel` pero con nombres completos (para el panel de detalle). */
+function sideFullLabel(side: RawMatch['sides'][number] | undefined): string {
+  if (!side) return '—'
+  if (side.players.length > 0) {
+    return side.players.map((p) => p.player.fullName).join(' / ')
+  }
+  if (side.team) {
+    if (side.team.members.length > 0) {
+      return side.team.members.map((m) => m.player.fullName).join(' / ')
+    }
+    if (side.team.name) return side.team.name
+  }
+  return '—'
+}
+
+/** Estado del partido en español para el panel de detalle. */
+const matchStatusLabels: Record<string, string> = {
+  scheduled: 'Programado',
+  in_progress: 'En juego',
+  finished: 'Disputado',
+  walkover: 'Walkover',
+  suspended: 'Suspendido',
+  cancelled: 'Cancelado',
 }
 
 /**
@@ -250,80 +312,6 @@ function matchContext(m: RawMatch): {
     }
   }
   return { tag: 'Partido', full: 'Partido' }
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Subcomponentes                                                            */
-/* -------------------------------------------------------------------------- */
-
-const toneByState: Record<SlotState, string> = {
-  'en-juego': 'bg-forest text-cream',
-  proximo: 'bg-ochre text-ink',
-  // Las reservas (uso privado del club) se distinguen en oscuro de los partidos
-  // de competición.
-  reserva: 'bg-ink text-cream',
-  // Las clases con coach destacan en ciruela para identificarlas a simple vista.
-  clase: 'bg-plum text-cream',
-  disputado: 'border border-border bg-muted/60 text-muted-foreground',
-  conflicto: 'bg-terracotta text-cream',
-}
-
-function MatchBlock({
-  match,
-  windowStart,
-  windowHours,
-}: {
-  match: ScheduledMatch
-  windowStart: number
-  windowHours: number
-}) {
-  const baseLeft = ((match.start - windowStart) / windowHours) * 100
-  const slotWidth = Math.min(
-    (match.duration / windowHours) * 100,
-    100 - baseLeft,
-  )
-  // Si hay conflicto, el slot se divide entre los partidos coincidentes.
-  const width = slotWidth / match.lanes
-  const left = baseLeft + match.lane * width
-  const inner = (
-    <div
-      className={cn(
-        'relative flex h-full flex-col justify-center gap-0.5 overflow-hidden rounded-md px-2 py-1 transition-shadow',
-        toneByState[match.state],
-        match.href && 'hover:ring-2 hover:ring-foreground/20',
-      )}
-    >
-      {match.state === 'en-juego' && (
-        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-lime" />
-      )}
-      <span className="truncate font-mono text-[9px] uppercase tracking-wider opacity-80">
-        {match.timeLabel} · {match.tag}
-      </span>
-      <span className="truncate text-[11px] font-medium leading-tight">
-        {match.label}
-      </span>
-      {match.subtitle && (
-        <span className="truncate font-mono text-[8px] uppercase tracking-wider opacity-60">
-          {match.subtitle}
-        </span>
-      )}
-    </div>
-  )
-  return (
-    <div
-      className="absolute inset-y-1 p-1"
-      style={{ left: `${left}%`, width: `${width}%` }}
-      title={match.title}
-    >
-      {match.href ? (
-        <Link href={match.href} className="block h-full">
-          {inner}
-        </Link>
-      ) : (
-        inner
-      )}
-    </div>
-  )
 }
 
 /* -------------------------------------------------------------------------- */
@@ -372,6 +360,7 @@ export default async function ProgramacionPage({
   }
 
   // Construye los partidos posicionables (con pista y hora) por pista.
+  const courtNameLookup = new Map(courts.map((c) => [c.id, c.name]))
   const matchById = new Map<string, ScheduledMatch>()
   const byCourt = new Map<string, ScheduledMatch[]>()
   for (const m of matches) {
@@ -395,6 +384,49 @@ export default async function ProgramacionPage({
     ).padStart(2, '0')}`
     const { subtitle, tag, full } = matchContext(m)
     const label = `${sideLabel(m.sides[0])} vs ${sideLabel(m.sides[1])}`
+
+    // Detalle de solo lectura para el panel (competición, fase, resultado…).
+    const isLeague = !!m.leagueId
+    const detail: MatchDetail = {
+      competition: isLeague
+        ? (m.league?.name ?? 'Liga')
+        : (m.category?.tournament?.name ?? 'Torneo'),
+      competitionKind: isLeague ? 'liga' : 'torneo',
+      category: isLeague ? null : (m.category?.name ?? null),
+      phase: isLeague
+        ? m.groupNumber != null
+          ? `Grupo ${m.groupNumber}`
+          : m.leagueRound
+            ? `Jornada ${m.leagueRound.roundNumber}`
+            : '—'
+        : m.bracketRound
+          ? roundLabel(m.bracketRound)
+          : m.groupNumber != null
+            ? `Grupo ${m.groupNumber}`
+            : '—',
+      aLabel: sideFullLabel(m.sides[0]),
+      bLabel: sideFullLabel(m.sides[1]),
+      courtName: courtNameLookup.get(m.courtId) ?? 'Pista',
+      dateLabel: formatInClubTz(m.scheduledAt, "d 'de' LLLL"),
+      timeLabel,
+      durationLabel: formatDuration(durMin),
+      statusLabel: matchStatusLabels[m.status] ?? m.status,
+      sets: m.sets.map((s) => ({
+        gamesA: s.gamesA,
+        gamesB: s.gamesB,
+        tiebreakA: s.tiebreakA,
+        tiebreakB: s.tiebreakB,
+      })),
+      winner: m.winnerSide ?? null,
+      href:
+        isLeague && m.leagueRoundId
+          ? `/dashboard/ligas/${m.leagueId}/jornadas/${m.leagueRoundId}`
+          : !isLeague && m.category?.tournament
+            ? `/dashboard/torneos/${m.category.tournament.id}/categorias/${m.categoryId}`
+            : null,
+      hrefLabel: isLeague ? 'Ir a la jornada' : 'Ir a la categoría',
+    }
+
     const sm: ScheduledMatch = {
       id: m.id,
       kind: 'match',
@@ -412,6 +444,7 @@ export default async function ProgramacionPage({
           ? `/dashboard/ligas/${m.leagueId}/jornadas/${m.leagueRoundId}`
           : undefined,
       title: `${full}\n${label}\n${timeLabel}`,
+      detail,
     }
     matchById.set(m.id, sm)
     const list = byCourt.get(m.courtId) ?? []
@@ -985,7 +1018,7 @@ export default async function ProgramacionPage({
                         ))}
                       </div>
                       {court.matches.map((match) => (
-                        <MatchBlock
+                        <ScheduledMatchBlock
                           key={match.id}
                           match={match}
                           windowStart={windowStart}

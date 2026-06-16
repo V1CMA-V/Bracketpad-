@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { teamStatusLabels, teamStatusStyles } from '@/lib/tournaments'
+import { roundLabel } from '@/lib/tournament-bracket'
 import {
   registerTeam,
   removeTeam,
@@ -25,6 +26,8 @@ export type TeamItem = {
   teamName: string | null
   seed: number | null
   status: string
+  // Ronda donde fue eliminada (null = sigue en competencia / sin empezar).
+  eliminatedInRound: string | null
 }
 
 function TeamRow({ team, index }: { team: TeamItem; index: number }) {
@@ -71,6 +74,12 @@ function TeamRow({ team, index }: { team: TeamItem; index: number }) {
           </p>
         )}
       </div>
+
+      {!withdrawn && team.eliminatedInRound && (
+        <span className="hidden shrink-0 items-center gap-1.5 rounded-sm bg-terracotta/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-terracotta sm:inline-flex">
+          Fuera · {roundLabel(team.eliminatedInRound)}
+        </span>
+      )}
 
       <span
         className={cn(

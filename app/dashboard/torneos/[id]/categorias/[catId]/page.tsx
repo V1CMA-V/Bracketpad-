@@ -7,6 +7,10 @@ import {
   TournamentGroupGenerator,
   type GroupData,
 } from '@/components/dashboard/tournament-group-generator'
+import {
+  TournamentBracket,
+  type BracketMatch,
+} from '@/components/dashboard/tournament-bracket'
 import { Button } from '@/components/ui/button'
 import { getManagedClub } from '@/lib/club'
 import { prisma } from '@/lib/prisma'
@@ -78,6 +82,7 @@ export default async function TorneoCategoriaPage({
     teamName: t.name,
     seed: t.seed,
     status: t.status,
+    eliminatedInRound: t.eliminatedInRound,
   }))
 
   const clubPlayers = await prisma.player.findMany({
@@ -211,6 +216,75 @@ export default async function TorneoCategoriaPage({
       seed: t.seed,
     }))
 
+  // ¿La fase de grupos está completa? (todos sus partidos finalizados). Habilita
+  // armar la llave.
+  const groupsComplete =
+    groupMatches.length > 0 &&
+    groupMatches.every((m) => m.status === 'finished')
+
+  // Partidos de la fase eliminatoria (creados al generar la llave).
+  const bracketRows = await prisma.match.findMany({
+    where: { categoryId: category.id, bracketRound: { not: null } },
+    orderBy: [{ bracketRound: 'asc' }, { bracketSlot: 'asc' }],
+    select: {
+      id: true,
+      bracketRound: true,
+      bracketSlot: true,
+      status: true,
+      winnerSide: true,
+      scheduledAt: true,
+      courtId: true,
+      court: { select: { name: true } },
+      sides: { select: { side: true, teamId: true } },
+      sets: {
+        orderBy: { setNumber: 'asc' },
+        select: {
+          gamesA: true,
+          gamesB: true,
+          tiebreakA: true,
+          tiebreakB: true,
+        },
+      },
+    },
+  })
+
+  const bracketMatches: BracketMatch[] = bracketRows.map((m) => {
+    const a = m.sides.find((s) => s.side === 'A')?.teamId
+    const b = m.sides.find((s) => s.side === 'B')?.teamId
+    const aLabel = (a && labelByTeamId.get(a)) || '—'
+    const bLabel = (b && labelByTeamId.get(b)) || '—'
+    const winnerLabel =
+      m.status === 'finished' && m.winnerSide
+        ? m.winnerSide === 'A'
+          ? aLabel
+          : bLabel
+        : null
+    return {
+      id: m.id,
+      round: m.bracketRound as string,
+      slot: m.bracketSlot ?? 0,
+      aLabel,
+      bLabel,
+      winnerLabel,
+      status: m.status,
+      winner: m.winnerSide ?? null,
+      sets: m.sets.map((s) => ({
+        gamesA: s.gamesA,
+        gamesB: s.gamesB,
+        tiebreakA: s.tiebreakA,
+        tiebreakB: s.tiebreakB,
+      })),
+      date: m.scheduledAt ? clubDateKey(m.scheduledAt) : '',
+      time: m.scheduledAt ? clubTimeLabel(m.scheduledAt) : '',
+      courtId: m.courtId,
+      scheduleLabel: m.scheduledAt
+        ? `${formatInClubTz(m.scheduledAt, 'd MMM HH:mm')}${
+            m.court ? ` · ${m.court.name}` : ''
+          }`
+        : null,
+    }
+  })
+
   return (
     <>
       <DashboardTopbar>
@@ -269,6 +343,20 @@ export default async function TorneoCategoriaPage({
                 courts={courts}
               />
             )}
+
+            {isGroups && (
+              <TournamentBracket
+                categoryId={category.id}
+                groups={groups}
+                groupsComplete={groupsComplete}
+                generated={bracketMatches.length > 0}
+                matches={bracketMatches}
+                defaultAdvance={category.advancePerGroup ?? 1}
+                bestOfSets={category.bestOfSets}
+                tiebreakAt={category.tiebreakAt}
+                courts={courts}
+              />
+            )}
           </div>
 
           {/* Columna lateral */}
@@ -296,9 +384,20 @@ export default async function TorneoCategoriaPage({
                 )}
                 {isGroups && category.advancePerGroup != null && (
                   <DataRow
-                    label="Avanzan por grupo"
+                    label="Directos por grupo"
                     value={String(category.advancePerGroup)}
                   />
+                )}
+                {isGroups &&
+                  category.wildcardSlots != null &&
+                  category.wildcardSlots > 0 && (
+                    <DataRow
+                      label="Comodines"
+                      value={String(category.wildcardSlots)}
+                    />
+                  )}
+                {isGroups && category.thirdPlaceMatch && (
+                  <DataRow label="3er lugar" value="Sí" />
                 )}
                 <DataRow
                   label="Cupo"

@@ -658,6 +658,10 @@ model Match {
 
   courtId     String?
   scheduledAt DateTime?
+  // Hora tentativa: el partido se juega ese día pero la hora exacta queda sujeta a
+  // disponibilidad (los anteriores pueden alargarse). `scheduledAt` guarda la
+  // estimación; al desprogramar vuelve a false. Solo aplica con `scheduledAt`.
+  timeTbd     Boolean   @default(false)
   // Minutos que el partido aparta la cancha (duración). En los grupos de liga
   // define cuánto dura cada ronda y, por tanto, el escalonado de las rondas
   // siguientes. Null = duración por defecto.

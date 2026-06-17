@@ -46,6 +46,8 @@ export type MatchDetail = {
   statusLabel: string
   sets: MatchSet[]
   winner: 'A' | 'B' | null
+  // Hora tentativa (sujeta a disponibilidad): la estimación puede moverse.
+  tentative: boolean
   href: string | null
   hrefLabel: string
 }
@@ -65,6 +67,7 @@ export type ScheduledBlock = {
   lanes: number
   href?: string
   title: string
+  tentative?: boolean
   detail?: MatchDetail
 }
 
@@ -176,7 +179,13 @@ function MatchDetailSheet({
             <DetailRow label="Fase" value={detail.phase} />
             <DetailRow label="Cancha" value={detail.courtName} />
             <DetailRow label="Fecha" value={detail.dateLabel} />
-            <DetailRow label="Hora" value={detail.timeLabel} />
+            <DetailRow
+              label="Hora"
+              value={`${detail.tentative ? '≈ ' : ''}${detail.timeLabel}`}
+            />
+            {detail.tentative && (
+              <DetailRow label="Disponibilidad" value="Sujeto a disponibilidad" />
+            )}
             <DetailRow label="Duración" value={detail.durationLabel} />
             <DetailRow label="Estado" value={detail.statusLabel} />
           </dl>
@@ -232,6 +241,8 @@ export function ScheduledMatchBlock({
       className={cn(
         'relative flex h-full flex-col justify-center gap-0.5 overflow-hidden rounded-md px-2 py-1 transition-shadow',
         toneByState[match.state],
+        // Hora tentativa: borde punteado y algo más tenue para distinguirla.
+        match.tentative && 'border border-dashed border-current/50 opacity-90',
         'hover:ring-2 hover:ring-foreground/20',
       )}
     >
@@ -239,6 +250,7 @@ export function ScheduledMatchBlock({
         <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-lime" />
       )}
       <span className="truncate font-mono text-[9px] uppercase tracking-wider opacity-80">
+        {match.tentative ? '≈ ' : ''}
         {match.timeLabel} · {match.tag}
       </span>
       <span className="truncate text-[11px] font-medium leading-tight">

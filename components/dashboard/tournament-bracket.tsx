@@ -49,6 +49,7 @@ export type BracketMatch = {
   date: string
   time: string
   courtId: string | null
+  timeTbd: boolean
   scheduleLabel: string | null
 }
 

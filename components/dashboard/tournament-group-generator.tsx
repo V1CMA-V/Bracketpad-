@@ -59,6 +59,7 @@ export type GroupFixture = {
   date: string
   time: string
   courtId: string | null
+  timeTbd: boolean
   scheduleLabel: string | null
 }
 

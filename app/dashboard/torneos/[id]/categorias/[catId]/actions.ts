@@ -909,7 +909,7 @@ export async function clearMatchResult(matchId: string): Promise<GroupState> {
  */
 export async function setMatchSchedule(
   matchId: string,
-  input: { date: string; time: string; courtId: string },
+  input: { date: string; time: string; courtId: string; timeTbd?: boolean },
 ): Promise<GroupState> {
   const match = await findOwnedMatch(matchId)
   if (!match) return { error: 'Partido no encontrado.' }
@@ -940,9 +940,12 @@ export async function setMatchSchedule(
     if (!court) return { error: 'Cancha no válida.' }
   }
 
+  // La hora tentativa solo tiene sentido si hay una estimación (scheduledAt).
+  const timeTbd = !!input.timeTbd && scheduledAt != null
+
   await prisma.match.update({
     where: { id: matchId },
-    data: { scheduledAt, courtId },
+    data: { scheduledAt, courtId, timeTbd },
   })
 
   revalidateCategory(match.category.tournamentId, match.categoryId)

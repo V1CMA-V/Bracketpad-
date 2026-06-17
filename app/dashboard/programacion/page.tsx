@@ -82,6 +82,8 @@ type ScheduledMatch = {
   // tooltip al pasar el ratón.
   href?: string
   title: string
+  // Hora tentativa (sujeta a disponibilidad): solo en partidos.
+  tentative?: boolean
   // Detalle de solo lectura para el panel al hacer clic (solo en partidos).
   detail?: MatchDetail
 }
@@ -418,6 +420,7 @@ export default async function ProgramacionPage({
         tiebreakB: s.tiebreakB,
       })),
       winner: m.winnerSide ?? null,
+      tentative: m.timeTbd,
       href:
         isLeague && m.leagueRoundId
           ? `/dashboard/ligas/${m.leagueId}/jornadas/${m.leagueRoundId}`
@@ -444,6 +447,7 @@ export default async function ProgramacionPage({
           ? `/dashboard/ligas/${m.leagueId}/jornadas/${m.leagueRoundId}`
           : undefined,
       title: `${full}\n${label}\n${timeLabel}`,
+      tentative: m.timeTbd,
       detail,
     }
     matchById.set(m.id, sm)
@@ -690,6 +694,7 @@ export default async function ProgramacionPage({
           subtitle: m.subtitle,
           tag: m.tag,
           state: m.state as MatchState,
+          tentative: m.tentative,
           href: m.href,
         })),
     ),

@@ -131,6 +131,7 @@ export default async function TorneoCategoriaPage({
       winnerSide: true,
       scheduledAt: true,
       courtId: true,
+      timeTbd: true,
       court: { select: { name: true } },
       sides: { select: { side: true, teamId: true } },
       sets: {
@@ -193,6 +194,7 @@ export default async function TorneoCategoriaPage({
       date: match.scheduledAt ? clubDateKey(match.scheduledAt) : '',
       time: match.scheduledAt ? clubTimeLabel(match.scheduledAt) : '',
       courtId: match.courtId,
+      timeTbd: match.timeTbd,
       scheduleLabel,
     })
     fixturesByGroup.set(match.groupNumber, arr)
@@ -234,6 +236,7 @@ export default async function TorneoCategoriaPage({
       winnerSide: true,
       scheduledAt: true,
       courtId: true,
+      timeTbd: true,
       court: { select: { name: true } },
       sides: { select: { side: true, teamId: true } },
       sets: {
@@ -277,6 +280,7 @@ export default async function TorneoCategoriaPage({
       date: m.scheduledAt ? clubDateKey(m.scheduledAt) : '',
       time: m.scheduledAt ? clubTimeLabel(m.scheduledAt) : '',
       courtId: m.courtId,
+      timeTbd: m.timeTbd,
       scheduleLabel: m.scheduledAt
         ? `${formatInClubTz(m.scheduledAt, 'd MMM HH:mm')}${
             m.court ? ` · ${m.court.name}` : ''

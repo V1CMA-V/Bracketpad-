@@ -46,6 +46,8 @@ export type MatchRow = {
   subtitle?: string
   tag: string
   state: MatchState
+  // Hora tentativa (sujeta a disponibilidad): se marca con ≈ y una etiqueta.
+  tentative?: boolean
   href?: string
 }
 
@@ -269,7 +271,10 @@ function ReservationItem({ row, day }: { row: ReservationRow; day: string }) {
 function MatchItem({ row }: { row: MatchRow }) {
   const inner = (
     <>
-      <TimeCol timeLabel={row.timeLabel} durationLabel={row.durationLabel} />
+      <TimeCol
+        timeLabel={`${row.tentative ? '≈ ' : ''}${row.timeLabel}`}
+        durationLabel={row.durationLabel}
+      />
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">
@@ -293,7 +298,7 @@ function MatchItem({ row }: { row: MatchRow }) {
           {matchStateLabel[row.state]}
         </span>
         <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/60">
-          Partido
+          {row.tentative ? 'Tentativo' : 'Partido'}
         </p>
       </div>
 

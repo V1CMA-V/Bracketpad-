@@ -42,6 +42,8 @@ export type ResultMatch = {
   date: string
   time: string
   courtId: string | null
+  // Hora tentativa (sujeta a disponibilidad): la estimación puede moverse.
+  timeTbd: boolean
 }
 
 const cellCls =
@@ -109,6 +111,7 @@ export function MatchResultSheet({
   const [date, setDate] = useState(match.date)
   const [time, setTime] = useState(match.time)
   const [courtId, setCourtId] = useState(match.courtId ?? '')
+  const [tentative, setTentative] = useState(match.timeTbd)
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -122,6 +125,7 @@ export function MatchResultSheet({
       setDate(match.date)
       setTime(match.time)
       setCourtId(match.courtId ?? '')
+      setTentative(match.timeTbd)
       setError(null)
     }
     onOpenChange(o)
@@ -130,7 +134,12 @@ export function MatchResultSheet({
   const saveSchedule = () => {
     setError(null)
     startTransition(async () => {
-      const res = await setMatchSchedule(match.id, { date, time, courtId })
+      const res = await setMatchSchedule(match.id, {
+        date,
+        time,
+        courtId,
+        timeTbd: tentative,
+      })
       if (res?.error) setError(res.error)
       else onOpenChange(false)
     })
@@ -238,6 +247,22 @@ export function MatchResultSheet({
                 ))}
               </select>
             )}
+            <label className="mt-3 flex items-start gap-3 rounded-lg border border-border bg-card p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={tentative}
+                onChange={(e) => setTentative(e.target.checked)}
+                className="mt-0.5 size-4 accent-ochre"
+              />
+              <span>
+                <span className="text-foreground">
+                  Hora sujeta a disponibilidad
+                </span>
+                <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                  Tentativa · se juega ese día pero la hora puede moverse
+                </span>
+              </span>
+            </label>
             <Button
               type="button"
               variant="outline"

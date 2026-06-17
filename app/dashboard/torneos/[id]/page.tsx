@@ -4,6 +4,7 @@ import {
   type CategoryItem,
 } from '@/components/dashboard/tournament-categories'
 import { TournamentSettings } from '@/components/dashboard/tournament-settings'
+import { TournamentStatusControl } from '@/components/dashboard/tournament-status-control'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getManagedClub } from '@/lib/club'
@@ -12,7 +13,7 @@ import {
   tournamentStatusLabels,
   tournamentStatusStyles,
 } from '@/lib/tournaments'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -130,6 +131,24 @@ export default async function TorneoDetailPage({
             Torneos
           </Link>
         </Button>
+
+        {/* Solo los torneos publicados (no borrador) tienen página pública. */}
+        {tournament.status !== 'draft' && (
+          <Button
+            asChild
+            variant="outline"
+            className="h-9 gap-1.5 rounded-md px-4 text-sm"
+          >
+            <Link
+              href={`/clubs/${club.slug}/t/${tournament.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink className="size-4" strokeWidth={2} />
+              Ver página pública
+            </Link>
+          </Button>
+        )}
       </DashboardTopbar>
 
       <div className="mx-auto max-w-[1600px] px-8 py-10">
@@ -182,6 +201,12 @@ export default async function TorneoDetailPage({
 
           {/* Columna lateral */}
           <aside className="space-y-6">
+            <TournamentStatusControl
+              tournamentId={tournament.id}
+              status={tournament.status}
+              publicHref={`/clubs/${club.slug}/t/${tournament.id}`}
+            />
+
             <TournamentSettings
               tournament={{
                 id: tournament.id,

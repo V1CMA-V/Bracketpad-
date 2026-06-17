@@ -243,6 +243,39 @@ export async function updateTournament(
   return { success: true }
 }
 
+const tournamentStatusSchema = z.enum([
+  'draft',
+  'registration_open',
+  'in_progress',
+  'finished',
+  'archived',
+])
+
+/**
+ * Cambia solo el estado del torneo (publicar, abrir inscripción, archivar…) sin
+ * tocar el resto de sus datos. Útil para publicar/ocultar rápido: los torneos en
+ * borrador no tienen página pública.
+ */
+export async function setTournamentStatus(
+  tournamentId: string,
+  status: string,
+): Promise<TournamentState> {
+  const owned = await findOwnedTournament(tournamentId)
+  if (!owned) return { error: 'Torneo no encontrado.' }
+
+  const parsed = tournamentStatusSchema.safeParse(status)
+  if (!parsed.success) return { error: 'Estado inválido.' }
+
+  await prisma.tournament.update({
+    where: { id: tournamentId },
+    data: { status: parsed.data },
+  })
+
+  revalidatePath(`/dashboard/torneos/${tournamentId}`)
+  revalidatePath('/dashboard/torneos')
+  return { success: true }
+}
+
 /**
  * Elimina un torneo en borrador por completo (categorías, equipos y partidos en
  * cascada). Fuera de borrador se debe archivar en lugar de borrarse.

@@ -1,145 +1,81 @@
 'use client'
 
-import { TournamentCard, type Tournament } from '@/components/home/tournament-card'
 import { cn } from '@/lib/utils'
-import { CalendarDays, Flame, Trophy, Users } from 'lucide-react'
+import { CalendarDays, ChevronRight, Flame, MapPin, Trophy, Users } from 'lucide-react'
+import Link from 'next/link'
 import { useMemo, useState } from 'react'
 
-type State = 'abierto' | 'en-juego' | 'proximo' | 'finalizado'
+export type FilterState = 'abierto' | 'en-juego' | 'finalizado'
 
-type Item = Tournament & { state: State }
+export type TournamentListItem = {
+  id: string
+  name: string
+  status: string
+  statusLabel: string
+  state: FilterState
+  categoryCount: number
+  teamCount: number
+  dates: string
+  location: string | null
+  href: string
+  watermark: string
+}
 
 const FILTERS = [
   { label: 'Todos', value: 'todos' },
   { label: 'Inscripción abierta', value: 'abierto' },
   { label: 'En juego', value: 'en-juego' },
-  { label: 'Próximos', value: 'proximo' },
   { label: 'Finalizados', value: 'finalizado' },
 ] as const
 
 type FilterValue = (typeof FILTERS)[number]['value']
 
-const STATS = [
-  { icon: Trophy, label: 'Torneos en cartelera', value: '06' },
-  { icon: Flame, label: 'En juego ahora', value: '02' },
-  { icon: Users, label: 'Inscripción abierta', value: '02' },
-  { icon: CalendarDays, label: 'En premios', value: '€16k' },
-]
-
-const VENUE = 'Club Marítimo del Olivar · Valencia'
-const TOTAL = 6
-
-const ITEMS: Item[] = [
-  {
-    index: 1,
-    total: TOTAL,
-    tag: 'destacado',
-    state: 'en-juego',
-    status: 'En juego · Cuartos',
-    meta: 'Padel · 15 — 28 jun',
-    title: 'Open de Verano',
-    subtitle: '8 categorías · cuadro a 128',
-    location: VENUE,
-    inscritos: '128',
-    premio: '€3.500',
-    plazas: 'Completo',
-    cta: 'Ver en directo',
-    watermark: 'V',
+// Acento de la portada de cada tarjeta según el estado del torneo.
+const coverStyles: Record<FilterState, { bg: string; ink: string; chip: string; dot: string }> = {
+  abierto: {
+    bg: 'bg-terracotta',
+    ink: 'text-cream',
+    chip: 'bg-cream/15 text-cream',
+    dot: 'bg-cream',
   },
-  {
-    index: 2,
-    total: TOTAL,
-    tag: 'abierta',
-    state: 'abierto',
-    status: 'Cierra 04 jul',
-    meta: 'Padel · 10 — 14 jul',
-    title: 'Trofeo del Olivar XII',
-    subtitle: '8 categorías · cuadro a 32',
-    location: VENUE,
-    inscritos: '142',
-    premio: '€6.000',
-    plazas: '18 libres',
-    cta: 'Inscribirme',
+  'en-juego': {
+    bg: 'bg-forest',
+    ink: 'text-cream',
+    chip: 'bg-lime/20 text-lime',
+    dot: 'bg-lime',
   },
-  {
-    index: 3,
-    total: TOTAL,
-    tag: 'abierta',
-    state: 'abierto',
-    status: 'Cierra 19 jun',
-    meta: 'Padel · 21 — 23 jun',
-    title: 'Torneo Sant Joan',
-    subtitle: '3ª — 4ª masculina',
-    location: VENUE,
-    inscritos: '48',
-    premio: '€1.500',
-    plazas: '16 libres',
-    cta: 'Inscribirme',
+  finalizado: {
+    bg: 'bg-ink',
+    ink: 'text-cream',
+    chip: 'bg-cream/10 text-cream/80',
+    dot: 'bg-cream/60',
   },
-  {
-    index: 4,
-    total: TOTAL,
-    tag: 'nuevo',
-    state: 'en-juego',
-    status: 'En curso · J6 de J9',
-    meta: 'Liga · may — sep',
-    title: 'Liga interna de socios',
-    subtitle: '6 categorías · round robin',
-    location: VENUE,
-    inscritos: '96',
-    premio: '€800',
-    plazas: 'Completo',
-    cta: 'Ver clasificación',
-  },
-  {
-    index: 5,
-    total: TOTAL,
-    tag: 'nuevo',
-    state: 'proximo',
-    status: 'Programado · Sep',
-    meta: 'Padel · 12 — 14 sep',
-    title: 'Memorial Vicente Andreu',
-    subtitle: 'Veteranos +45 · masc · fem',
-    location: VENUE,
-    inscritos: '—',
-    premio: '€1.200',
-    plazas: 'Abre 20 ago',
-    cta: 'Avísame',
-  },
-  {
-    index: 6,
-    total: TOTAL,
-    tag: 'destacado',
-    state: 'finalizado',
-    status: 'Finalizado · mar 2026',
-    meta: 'Liga · ene — mar',
-    title: 'Liga de Invierno',
-    subtitle: '6 categorías · round robin',
-    location: VENUE,
-    inscritos: '96',
-    premio: '€2.500',
-    plazas: 'Cerrado',
-    cta: 'Ver resultados',
-  },
-]
+}
 
 export function TournamentsList({
-  clubSlug,
-  clubName = 'Club Marítimo del Olivar',
+  items,
+  clubName,
 }: {
-  clubSlug: string
-  clubName?: string
+  items: TournamentListItem[]
+  clubName: string
 }) {
-  void clubSlug
   const [filter, setFilter] = useState<FilterValue>('todos')
 
   const visible = useMemo(
-    () =>
-      filter === 'todos'
-        ? ITEMS
-        : ITEMS.filter((t) => t.state === filter),
-    [filter],
+    () => (filter === 'todos' ? items : items.filter((t) => t.state === filter)),
+    [filter, items],
   )
+
+  const liveCount = items.filter((t) => t.state === 'en-juego').length
+  const openCount = items.filter((t) => t.state === 'abierto').length
+  const totalTeams = items.reduce((n, t) => n + t.teamCount, 0)
+
+  const stats = [
+    { icon: Trophy, label: 'Torneos en cartelera', value: String(items.length) },
+    { icon: Flame, label: 'En juego ahora', value: String(liveCount) },
+    { icon: Users, label: 'Inscripción abierta', value: String(openCount) },
+    { icon: CalendarDays, label: 'Parejas inscritas', value: String(totalTeams) },
+  ]
 
   return (
     <>
@@ -153,15 +89,15 @@ export function TournamentsList({
             La cartelera <em className="italic">del club.</em>
           </h1>
           <p className="mt-5 max-w-xl font-serif text-lg italic leading-relaxed text-ink/80">
-            Todos los torneos públicos que organiza el club esta temporada.
-            Filtra por estado e inscríbete antes de que se cierren las plazas.
+            Todos los torneos que organiza el club. Filtra por estado, abre el
+            que te interese y revisa categorías, cuadros y resultados.
           </p>
 
           <dl className="mt-10 grid grid-cols-2 gap-x-8 gap-y-6 border-t border-border pt-8 md:grid-cols-4">
-            {STATS.map(({ icon: Icon, label, value }) => (
+            {stats.map(({ icon: Icon, label, value }) => (
               <div key={label} className="flex flex-col gap-1.5">
                 <Icon className="size-4 text-ink/40" strokeWidth={1.5} />
-                <dd className="font-heading text-4xl leading-none text-ink">
+                <dd className="font-heading text-4xl leading-none text-ink tabular-nums">
                   {value}
                 </dd>
                 <dt className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -202,8 +138,8 @@ export function TournamentsList({
           {/* Rejilla */}
           {visible.length > 0 ? (
             <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {visible.map((t) => (
-                <TournamentCard key={t.index} tournament={t} />
+              {visible.map((t, i) => (
+                <TournamentCard key={t.id} item={t} index={i + 1} total={items.length} />
               ))}
             </div>
           ) : (
@@ -218,13 +154,94 @@ export function TournamentsList({
           {/* Pie */}
           <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6 font-mono text-xs uppercase tracking-wider text-muted-foreground">
             <span>
-              {visible.length} {visible.length === 1 ? 'torneo' : 'torneos'} en
-              pantalla
+              {visible.length} {visible.length === 1 ? 'torneo' : 'torneos'} en pantalla
             </span>
-            <span>Actualizado hoy · 09:00</span>
           </div>
         </div>
       </section>
     </>
+  )
+}
+
+function TournamentCard({
+  item,
+  index,
+  total,
+}: {
+  item: TournamentListItem
+  index: number
+  total: number
+}) {
+  const styles = coverStyles[item.state]
+  return (
+    <Link
+      href={item.href}
+      className="group flex flex-col overflow-hidden rounded-lg border border-foreground/10 bg-card transition-colors hover:border-terracotta/40"
+    >
+      {/* Portada */}
+      <div
+        className={cn('relative flex min-h-[180px] flex-col justify-between p-5', styles.bg, styles.ink)}
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(135deg, transparent 0 22px, rgba(255,255,255,0.04) 22px 23px)',
+        }}
+      >
+        <div className="flex items-start justify-between font-mono text-[10px] uppercase tracking-widest">
+          <span className="opacity-80">Torneo</span>
+          <span className="opacity-70">
+            {String(index).padStart(2, '0')} / {String(total).padStart(2, '0')}
+          </span>
+        </div>
+
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="select-none font-heading text-8xl italic opacity-20">
+            {item.watermark}
+          </span>
+        </div>
+
+        <span
+          className={cn(
+            'relative inline-flex w-fit items-center gap-2 rounded-sm px-2 py-1 font-mono text-[10px] uppercase tracking-widest',
+            styles.chip,
+          )}
+        >
+          <span className={cn('size-1.5 rounded-full', styles.dot)} />
+          {item.statusLabel}
+        </span>
+      </div>
+
+      {/* Cuerpo */}
+      <div className="flex flex-1 flex-col gap-4 p-5">
+        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          {item.categoryCount} {item.categoryCount === 1 ? 'categoría' : 'categorías'} · {item.dates}
+        </p>
+
+        <h3 className="font-heading text-3xl leading-tight tracking-tight text-foreground">
+          {item.name}
+        </h3>
+
+        {item.location && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <MapPin className="size-3.5" strokeWidth={1.5} />
+            {item.location}
+          </p>
+        )}
+
+        <dl className="mt-auto grid grid-cols-2 gap-3 border-t border-foreground/10 pt-4">
+          <div className="flex flex-col gap-1">
+            <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Parejas
+            </dt>
+            <dd className="font-mono text-base text-foreground tabular-nums">{item.teamCount}</dd>
+          </div>
+          <div className="flex items-end justify-end">
+            <span className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider text-ink transition-colors group-hover:text-terracotta">
+              Ver torneo
+              <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </div>
+        </dl>
+      </div>
+    </Link>
   )
 }

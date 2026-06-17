@@ -4,9 +4,8 @@ import type { MetadataRoute } from 'next'
 
 /**
  * Sitemap dinámico. Combina las rutas estáticas de marketing con el contenido
- * público en base de datos: clubes activos, sus páginas de ligas y cada liga
- * publicada (activa o finalizada). Las páginas de torneo individuales aún usan
- * datos de ejemplo, así que se omiten hasta que estén conectadas a la BD.
+ * público en base de datos: clubes activos, sus páginas de ligas y torneos, y
+ * cada liga publicada (activa o finalizada) y cada torneo no borrador.
  *
  * Si la consulta falla (p. ej. la BD no está disponible durante el build) se
  * devuelven al menos las rutas estáticas para no romper la generación.
@@ -46,6 +45,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
           where: { status: { in: ['active', 'finished'] } },
           select: { id: true, createdAt: true },
         },
+        tournaments: {
+          where: { status: { not: 'draft' } },
+          select: { id: true, createdAt: true },
+        },
       },
     })
 
@@ -64,12 +67,27 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
           changeFrequency: 'weekly',
           priority: 0.6,
         },
+        {
+          url: `${base}/torneos`,
+          lastModified: club.updatedAt,
+          changeFrequency: 'weekly',
+          priority: 0.6,
+        },
       ]
 
       for (const league of club.leagues) {
         entries.push({
           url: `${base}/l/${league.id}`,
           lastModified: league.createdAt,
+          changeFrequency: 'weekly',
+          priority: 0.7,
+        })
+      }
+
+      for (const tournament of club.tournaments) {
+        entries.push({
+          url: `${base}/t/${tournament.id}`,
+          lastModified: tournament.createdAt,
           changeFrequency: 'weekly',
           priority: 0.7,
         })

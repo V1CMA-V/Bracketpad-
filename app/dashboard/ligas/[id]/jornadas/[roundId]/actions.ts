@@ -2624,6 +2624,140 @@ export async function closeRoundAndAdvancePairs(
   redirect(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
 }
 
+/**
+ * Fija quién sube y/o quién baja cuando un grupo de PAREJAS terminó con empate
+ * por el ascenso o el descenso. Réplica de `setGroupTieDecision` (individual)
+ * para parejas: valida que las elegidas estén entre las empatadas y guarda la
+ * decisión en `manualMovement`; el cierre de la jornada la respeta. Si los
+ * resultados ya no producen empate, descarta cualquier decisión previa.
+ */
+export async function setPairGroupTieDecision(
+  roundId: string,
+  groupNumber: number,
+  upRegistrationId: string | null,
+  downRegistrationId: string | null,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: {
+      id: true,
+      leagueId: true,
+      league: {
+        select: {
+          playKind: true,
+          scoringConfig: { select: { rankingBy: true } },
+        },
+      },
+    },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round.league.playKind !== 'pairs') {
+    return { error: 'Esta acción solo aplica a ligas por parejas.' }
+  }
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+
+  const slots = await prisma.leagueGroupSlot.findMany({
+    where: { roundId },
+    select: {
+      registrationId: true,
+      groupNumber: true,
+      attendance: true,
+      registration: {
+        select: {
+          playerId: true,
+          partnerPlayerId: true,
+          player: { select: { fullName: true } },
+          partnerPlayer: { select: { fullName: true } },
+        },
+      },
+    },
+  })
+  const groupSlots = slots.filter((s) => s.groupNumber === groupNumber)
+  if (groupSlots.length === 0) {
+    return { error: 'Grupo no encontrado en esta jornada.' }
+  }
+  const maxGroup = Math.max(...slots.map((s) => s.groupNumber))
+
+  const matches = await prisma.match.findMany({
+    where: { leagueRoundId: roundId, groupNumber },
+    select: {
+      status: true,
+      winnerSide: true,
+      sides: {
+        select: { side: true, players: { select: { playerId: true } } },
+      },
+      sets: { select: { gamesA: true, gamesB: true } },
+    },
+  })
+  if (matches.length === 0 || matches.some((m) => m.status !== 'finished')) {
+    return {
+      error: 'Termina todos los partidos del grupo antes de resolver el empate.',
+    }
+  }
+
+  const absent = new Set(
+    slots.filter((s) => s.attendance === 'absent').map((s) => s.registrationId),
+  )
+  const { acc } = buildPairGroupAccs(slots, matches, absent)
+  const members = groupSlots
+    .map((s) => acc.get(s.registrationId))
+    .filter((a): a is PairGroupAcc => !!a)
+  const { upCandidates, downCandidates } = pairGroupBoundaries(
+    members,
+    groupNumber,
+    maxGroup,
+    absent,
+    rankingBy,
+  )
+  const upTie = upCandidates.length > 1
+  const downTie = downCandidates.length > 1
+
+  // El empate desapareció (cambiaron resultados): limpia y termina.
+  if (!upTie && !downTie) {
+    await prisma.leagueGroupSlot.updateMany({
+      where: { roundId, groupNumber },
+      data: { manualMovement: null },
+    })
+    revalidateRound(round.leagueId, round.id)
+    return { success: true }
+  }
+
+  const upIds = new Set(upCandidates.map((m) => m.registrationId))
+  const downIds = new Set(downCandidates.map((m) => m.registrationId))
+  if (upTie && (!upRegistrationId || !upIds.has(upRegistrationId))) {
+    return { error: 'Elige quién sube entre las parejas empatadas.' }
+  }
+  if (downTie && (!downRegistrationId || !downIds.has(downRegistrationId))) {
+    return { error: 'Elige quién baja entre las parejas empatadas.' }
+  }
+  if (upTie && downTie && upRegistrationId === downRegistrationId) {
+    return { error: 'La misma pareja no puede subir y bajar.' }
+  }
+
+  await prisma.$transaction(
+    groupSlots.map((s) => {
+      const movement: 'up' | 'down' | null =
+        upTie && s.registrationId === upRegistrationId
+          ? 'up'
+          : downTie && s.registrationId === downRegistrationId
+            ? 'down'
+            : null
+      return prisma.leagueGroupSlot.update({
+        where: {
+          roundId_registrationId: { roundId, registrationId: s.registrationId },
+        },
+        data: { manualMovement: movement },
+      })
+    }),
+  )
+
+  revalidateRound(round.leagueId, round.id)
+  return { success: true }
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Resolver empate de ascenso/descenso en un grupo (decisión manual)         */
 /* -------------------------------------------------------------------------- */

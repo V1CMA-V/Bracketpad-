@@ -4,12 +4,14 @@ import { useActionState, useEffect, useRef, useState, useTransition } from 'reac
 import {
   ClipboardCheck,
   Clock,
+  Dices,
   FlagTriangleRight,
   Lock,
   Plus,
   Save,
   Search,
   Trash2,
+  TriangleAlert,
   Wand2,
   X,
 } from 'lucide-react'
@@ -26,6 +28,7 @@ import {
   deleteGroup,
   generatePairGroupsFromStandings,
   setGroupStatus,
+  setPairGroupTieDecision,
   setSlotAttendance,
   updatePairGroupDetails,
   type MatchState,
@@ -85,6 +88,18 @@ const teamKey = (players: SidePlayer[]) =>
     .map((p) => p.id)
     .sort()
     .join('|')
+
+/**
+ * Plan aleatorio para la «ruleta» de desempate: índice ganador y nº de pasos de
+ * la animación. A nivel de módulo (fuera del render) para no llamar a
+ * `Math.random` durante el render.
+ */
+function randomRollPlan(count: number): { finalIdx: number; steps: number } {
+  return {
+    finalIdx: Math.floor(Math.random() * count),
+    steps: 16 + Math.floor(Math.random() * 6),
+  }
+}
 
 type RoundGroup = {
   groupNumber: number
@@ -660,6 +675,32 @@ function PairGroupCard({
   const [panel, setPanel] = useState<'none' | 'edit' | 'checkin'>('none')
   const [removing, startRemove] = useTransition()
   const [statusPending, startStatus] = useTransition()
+  const [tiePending, startTie] = useTransition()
+
+  // Selección del organizador para resolver empates, inicializada con la
+  // decisión ya guardada (si la hay).
+  const [chosenUp, setChosenUp] = useState(
+    () =>
+      roster?.members.find((m) => m.manualMovement === 'up')?.registrationId ??
+      '',
+  )
+  const [chosenDown, setChosenDown] = useState(
+    () =>
+      roster?.members.find((m) => m.manualMovement === 'down')
+        ?.registrationId ?? '',
+  )
+
+  // Ruleta de empate: `rolling` indica el lado que sortea ('up'/'down') y
+  // `rollName` el nombre que se muestra girando. Al terminar fija la elección.
+  const [rolling, setRolling] = useState<'up' | 'down' | null>(null)
+  const [rollName, setRollName] = useState('')
+  const rollTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  useEffect(
+    () => () => {
+      rollTimers.current.forEach(clearTimeout)
+    },
+    [],
+  )
 
   const matches = [...group.matches].sort(
     (a, b) => (a.intraGroupOrder ?? 0) - (b.intraGroupOrder ?? 0),
@@ -773,7 +814,9 @@ function PairGroupCard({
   const scoreOf = (s: Stat) =>
     rankingBy === 'games' ? s.gamesFor - s.gamesAgainst : s.setsWon
   const allStats = [...stats.values()]
-  const hasAbsent = allStats.some((s) => s.isAbsent)
+  const presentStats = allStats.filter((s) => !s.isAbsent)
+  const absentStats = allStats.filter((s) => s.isAbsent)
+  const hasAbsent = absentStats.length > 0
   // Puesto en la clasificación general de cada pareja (1 = mejor), tomado de
   // cualquiera de sus jugadores, para decidir qué ausente desciende cuando varias
   // faltan en el mismo grupo.
@@ -787,44 +830,148 @@ function PairGroupCard({
   // Orden: primero las parejas presentes por puntuación; las ausentes al final,
   // ordenadas por clasificación general (peor abajo → es quien desciende).
   const rankedStats = [
-    ...allStats
-      .filter((s) => !s.isAbsent)
-      .sort(
-        (a, b) =>
-          scoreOf(b) - scoreOf(a) ||
-          b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
-          a.label.localeCompare(b.label),
-      ),
-    ...allStats
-      .filter((s) => s.isAbsent)
-      .sort((a, b) => overallRankOfStat(a) - overallRankOfStat(b)),
+    ...[...presentStats].sort(
+      (a, b) =>
+        scoreOf(b) - scoreOf(a) ||
+        b.gamesFor - b.gamesAgainst - (a.gamesFor - a.gamesAgainst) ||
+        a.label.localeCompare(b.label),
+    ),
+    ...[...absentStats].sort(
+      (a, b) => overallRankOfStat(a) - overallRankOfStat(b),
+    ),
   ]
-  const presentCount = allStats.filter((s) => !s.isAbsent).length
   // De las parejas ausentes, solo desciende la peor clasificada en la liga; el
   // resto mantiene su grupo aunque pierdan la jornada.
-  const absentDescenderKey = allStats.some((s) => s.isAbsent)
-    ? [...allStats.filter((s) => s.isAbsent)].sort(
+  const absentDescenderKey = absentStats.length
+    ? [...absentStats].sort(
         (a, b) => overallRankOfStat(b) - overallRankOfStat(a),
       )[0].key
     : null
 
   // Ascenso/descenso de parejas: el grupo más alto no sube, el más bajo no baja.
   // La mejor pareja del grupo sube; la peor baja, salvo que haya ausentes, que
-  // ocupan el descenso (solo la peor clasificada de ellas). Empates de presentes
-  // resueltos por el orden de la tabla.
+  // ocupan el descenso (solo la peor clasificada de ellas). Cuando 2+ parejas
+  // empatan por subir/bajar lo decide el organizador, igual que en individual.
   const isHighest = group.groupNumber === 1
   const isLowest = group.groupNumber >= maxGroupNumber
-  const movementOf = (s: Stat, i: number): 'up' | 'down' | 'stay' => {
+  const topScore = presentStats.length
+    ? Math.max(...presentStats.map(scoreOf))
+    : 0
+  const bottomScore = presentStats.length
+    ? Math.min(...presentStats.map(scoreOf))
+    : 0
+  const upCandidates = isHighest
+    ? []
+    : presentStats.filter((s) => scoreOf(s) === topScore)
+  const downCandidates =
+    isLowest || hasAbsent
+      ? []
+      : presentStats.filter((s) => scoreOf(s) === bottomScore)
+  const upTie = upCandidates.length > 1
+  const downTie = downCandidates.length > 1
+
+  // Registración (pareja) de una estadística, vía cualquiera de sus jugadores.
+  const regOfStat = (s: Stat): string | null => {
+    for (const id of teams.get(s.key)?.playerIds ?? []) {
+      const reg = memberByPlayer.get(id)?.registrationId
+      if (reg) return reg
+    }
+    return null
+  }
+  // Decisión manual ya guardada (por pareja) para resolver el empate.
+  const resolvedUpReg =
+    roster?.members.find((m) => m.manualMovement === 'up')?.registrationId ??
+    null
+  const resolvedDownReg =
+    roster?.members.find((m) => m.manualMovement === 'down')?.registrationId ??
+    null
+  const upPending = upTie && !resolvedUpReg
+  const downPending = downTie && !resolvedDownReg
+
+  // Movimiento mostrado por pareja. 'tie' = empate pendiente de decidir.
+  const movementOf = (s: Stat): 'up' | 'down' | 'stay' | 'tie' => {
     if (s.isAbsent)
       return !isLowest && s.key === absentDescenderKey ? 'down' : 'stay'
-    if (i === 0 && !isHighest && presentCount > 0) return 'up'
-    if (i === presentCount - 1 && !isLowest && !hasAbsent) return 'down'
+    const reg = regOfStat(s)
+    if (!isHighest) {
+      if (upTie) {
+        if (resolvedUpReg && reg === resolvedUpReg) return 'up'
+        if (upPending && scoreOf(s) === topScore) return 'tie'
+      } else if (upCandidates[0]?.key === s.key) return 'up'
+    }
+    if (!isLowest && !hasAbsent) {
+      if (downTie) {
+        if (resolvedDownReg && reg === resolvedDownReg) return 'down'
+        if (downPending && scoreOf(s) === bottomScore) return 'tie'
+      } else if (downCandidates[0]?.key === s.key) return 'down'
+    }
     return 'stay'
   }
   const movementLabel: Record<string, string> = {
     up: 'Sube',
     down: 'Baja',
     stay: 'Mantiene',
+    tie: 'Empate',
+  }
+
+  // Opciones del selector de empate (el server espera la registración/pareja).
+  const toOptions = (cands: Stat[]) =>
+    cands
+      .map((s) => ({ registrationId: regOfStat(s), name: s.label }))
+      .filter(
+        (o): o is { registrationId: string; name: string } =>
+          !!o.registrationId,
+      )
+  const upOptions = toOptions(upCandidates)
+  const downOptions = toOptions(downCandidates)
+  // Solo ofrecemos resolver si conocemos las registraciones de las empatadas.
+  const showTieResolver =
+    groupStatus === 'finished' &&
+    ((upTie && upOptions.length === upCandidates.length) ||
+      (downTie && downOptions.length === downCandidates.length))
+
+  // Elige una ganadora al azar entre las empatadas con una animación de «ruleta».
+  const rollRandom = (
+    side: 'up' | 'down',
+    options: { registrationId: string; name: string }[],
+    setChosen: (v: string) => void,
+  ) => {
+    if (rolling || tiePending || options.length < 2) return
+    const { finalIdx, steps } = randomRollPlan(options.length)
+    setRolling(side)
+    let i = 0
+    const tick = () => {
+      i += 1
+      if (i >= steps) {
+        setRollName(options[finalIdx].name)
+        setChosen(options[finalIdx].registrationId)
+        setRolling(null)
+        return
+      }
+      setRollName(options[i % options.length].name)
+      const delay = 45 + Math.pow(i / steps, 2.6) * 340
+      rollTimers.current.push(setTimeout(tick, delay))
+    }
+    tick()
+  }
+
+  // Guarda la decisión del empate (quién sube / quién baja).
+  const tieSaveDisabled =
+    tiePending ||
+    rolling !== null ||
+    (upTie && !chosenUp) ||
+    (downTie && !chosenDown) ||
+    (upTie && downTie && chosenUp === chosenDown)
+  const saveTie = () => {
+    if (tieSaveDisabled) return
+    startTie(() => {
+      void setPairGroupTieDecision(
+        roundId,
+        group.groupNumber,
+        upTie ? chosenUp || null : null,
+        downTie ? chosenDown || null : null,
+      )
+    })
   }
 
   const isHit = (name: string) =>
@@ -1005,7 +1152,7 @@ function PairGroupCard({
             <tbody>
               {rankedStats.map((s, i) => {
                 const diff = s.gamesFor - s.gamesAgainst
-                const mv = movementOf(s, i)
+                const mv = movementOf(s)
                 return (
                   <tr
                     key={s.key}
@@ -1060,7 +1207,9 @@ function PairGroupCard({
                             ? 'text-forest'
                             : mv === 'down'
                               ? 'text-terracotta'
-                              : 'text-muted-foreground',
+                              : mv === 'tie'
+                                ? 'text-ochre'
+                                : 'text-muted-foreground',
                         )}
                       >
                         {movementLabel[mv]}
@@ -1071,6 +1220,126 @@ function PairGroupCard({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showTieResolver && (
+        <div className="mt-3 rounded-lg border border-ochre/40 bg-ochre/5 p-4">
+          <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-ochre">
+            <TriangleAlert className="size-3.5" strokeWidth={2} />
+            Empate — decide quién{' '}
+            {upTie && downTie ? 'sube y baja' : upTie ? 'sube' : 'baja'}
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            Hay empate en{' '}
+            {rankingBy === 'games'
+              ? 'la diferencia de juegos'
+              : 'los partidos ganados'}
+            . El sistema no decide el ascenso/descenso: elígelo tú o deja que el
+            dado lo sortee al azar para poder cerrar la jornada.
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            {upTie && (
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Sube
+                </span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={chosenUp}
+                    onChange={(e) => setChosenUp(e.target.value)}
+                    disabled={tiePending || rolling !== null}
+                    className={cn(fieldCls, 'w-44')}
+                  >
+                    <option value="">Elegir…</option>
+                    {upOptions.map((o) => (
+                      <option key={o.registrationId} value={o.registrationId}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Elegir al azar"
+                    onClick={() => rollRandom('up', upOptions, setChosenUp)}
+                    disabled={tiePending || rolling !== null}
+                    className="shrink-0 rounded-md"
+                  >
+                    <Dices
+                      className={cn('size-4', rolling === 'up' && 'animate-spin')}
+                      strokeWidth={2}
+                    />
+                  </Button>
+                </div>
+                {rolling === 'up' && (
+                  <span className="animate-pulse font-mono text-xs font-medium text-ochre">
+                    {rollName}
+                  </span>
+                )}
+              </label>
+            )}
+            {downTie && (
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Baja
+                </span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={chosenDown}
+                    onChange={(e) => setChosenDown(e.target.value)}
+                    disabled={tiePending || rolling !== null}
+                    className={cn(fieldCls, 'w-44')}
+                  >
+                    <option value="">Elegir…</option>
+                    {downOptions.map((o) => (
+                      <option key={o.registrationId} value={o.registrationId}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Elegir al azar"
+                    onClick={() => rollRandom('down', downOptions, setChosenDown)}
+                    disabled={tiePending || rolling !== null}
+                    className="shrink-0 rounded-md"
+                  >
+                    <Dices
+                      className={cn(
+                        'size-4',
+                        rolling === 'down' && 'animate-spin',
+                      )}
+                      strokeWidth={2}
+                    />
+                  </Button>
+                </div>
+                {rolling === 'down' && (
+                  <span className="animate-pulse font-mono text-xs font-medium text-ochre">
+                    {rollName}
+                  </span>
+                )}
+              </label>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={saveTie}
+              disabled={tieSaveDisabled}
+              className="h-9 gap-1.5 rounded-md px-4 text-sm"
+            >
+              <Save className="size-4" strokeWidth={2} />
+              {tiePending ? 'Guardando…' : 'Guardar decisión'}
+            </Button>
+          </div>
+          {upTie && downTie && chosenUp && chosenUp === chosenDown && (
+            <p className="mt-2 text-xs text-destructive">
+              La misma pareja no puede subir y bajar.
+            </p>
+          )}
         </div>
       )}
 

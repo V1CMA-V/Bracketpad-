@@ -14,6 +14,7 @@ import {
   createPairGroupSchema,
 } from '@/lib/validations/jornada'
 import { DEFAULT_MATCH_MINUTES, MAX_GAMES_PER_SET } from '@/lib/league-rules'
+import { teamLabel } from '@/lib/leagues'
 import { compareStandings, recomputeStandings } from '@/lib/standings'
 import {
   clubDateKey,
@@ -2063,6 +2064,563 @@ export async function closeRoundAndAdvance(
   revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
   // Lleva al organizador directamente a la jornada recién generada, ya lista con
   // sus grupos y fechas. `redirect` lanza, así que esta acción no retorna aquí.
+  redirect(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Parejas: cerrar jornada → ascenso/descenso → generar la siguiente          */
+/* -------------------------------------------------------------------------- */
+
+/** Resultado de una pareja (inscripción) dentro de su grupo en una jornada. */
+type PairGroupAcc = {
+  registrationId: string
+  label: string
+  setsWon: number
+  gamesFor: number
+  gamesAgainst: number
+}
+
+/** Slot de pareja con los datos necesarios para acumular y etiquetar. */
+type PairSlot = {
+  registrationId: string
+  registration: {
+    playerId: string | null
+    partnerPlayerId: string | null
+    player: { fullName: string } | null
+    partnerPlayer: { fullName: string } | null
+  }
+}
+
+/** Puntuación de ascenso/descenso de una pareja: sets ganados (o dif. de juegos
+ *  en ligas «por juegos»). */
+function pairScore(a: PairGroupAcc, rankingBy: string): number {
+  return rankingBy === 'games' ? a.gamesFor - a.gamesAgainst : a.setsWon
+}
+
+/**
+ * Acumula el resultado por pareja (inscripción) de una jornada a partir de sus
+ * partidos. Devuelve también los mapas auxiliares pareja ⟷ jugadores. La pareja
+ * ausente no recibe los resultados que jugó su pareja suplente.
+ */
+function buildPairGroupAccs(
+  slots: PairSlot[],
+  matches: MatchForAcc[],
+  absent: Set<string>,
+) {
+  const regByPlayer = new Map<string, string>()
+  const playerIdsByReg = new Map<string, string[]>()
+  const acc = new Map<string, PairGroupAcc>()
+  for (const s of slots) {
+    const ids = [
+      s.registration.playerId,
+      s.registration.partnerPlayerId,
+    ].filter((x): x is string => !!x)
+    playerIdsByReg.set(s.registrationId, ids)
+    for (const id of ids) regByPlayer.set(id, s.registrationId)
+    acc.set(s.registrationId, {
+      registrationId: s.registrationId,
+      label: teamLabel(
+        s.registration.player?.fullName ?? '',
+        s.registration.partnerPlayer?.fullName,
+      ),
+      setsWon: 0,
+      gamesFor: 0,
+      gamesAgainst: 0,
+    })
+  }
+  for (const m of matches) {
+    const set = m.sets[0]
+    if (!set) continue
+    const sideA = m.sides.find((x) => x.side === 'A')
+    const sideB = m.sides.find((x) => x.side === 'B')
+    if (!sideA || !sideB) continue
+    const regA = sideA.players
+      .map((p) => regByPlayer.get(p.playerId))
+      .find((r): r is string => !!r)
+    const regB = sideB.players
+      .map((p) => regByPlayer.get(p.playerId))
+      .find((r): r is string => !!r)
+    if (regA && !absent.has(regA)) {
+      const a = acc.get(regA)
+      if (a) {
+        a.gamesFor += set.gamesA
+        a.gamesAgainst += set.gamesB
+        if (m.winnerSide === 'A') a.setsWon += 1
+      }
+    }
+    if (regB && !absent.has(regB)) {
+      const b = acc.get(regB)
+      if (b) {
+        b.gamesFor += set.gamesB
+        b.gamesAgainst += set.gamesA
+        if (m.winnerSide === 'B') b.setsWon += 1
+      }
+    }
+  }
+  return { acc, regByPlayer, playerIdsByReg }
+}
+
+/**
+ * Candidatas al ascenso/descenso de un grupo de parejas. Un puesto está
+ * «empatado» cuando lo comparten 2+ parejas con la misma puntuación: lo decide
+ * el organizador (manualMovement), igual que en el formato individual.
+ */
+function pairGroupBoundaries(
+  members: PairGroupAcc[],
+  groupNumber: number,
+  maxGroup: number,
+  absent: Set<string>,
+  rankingBy: string,
+) {
+  const present = members.filter((m) => !absent.has(m.registrationId))
+  const hasAbsent = members.some((m) => absent.has(m.registrationId))
+  const score = (m: PairGroupAcc) => pairScore(m, rankingBy)
+  let upCandidates: PairGroupAcc[] = []
+  let downCandidates: PairGroupAcc[] = []
+  // El grupo más alto no asciende; el más bajo no desciende.
+  if (groupNumber > 1 && present.length > 0) {
+    const top = Math.max(...present.map(score))
+    upCandidates = present.filter((m) => score(m) === top)
+  }
+  // Con ausentes, el descenso lo ocupan ellas, así que no hay empate por bajar.
+  if (groupNumber < maxGroup && !hasAbsent && present.length > 0) {
+    const bottom = Math.min(...present.map(score))
+    downCandidates = present.filter((m) => score(m) === bottom)
+  }
+  return { present, hasAbsent, upCandidates, downCandidates }
+}
+
+/**
+ * Cierra una jornada de liga POR PAREJAS: calcula ascensos/descensos a partir de
+ * los resultados de cada grupo y genera (o reutiliza) la jornada siguiente con
+ * los nuevos grupos. Réplica de `closeRoundAndAdvance` (individual) pero operando
+ * sobre parejas: la mejor pareja de cada grupo sube y la peor baja, con la misma
+ * gestión de ausencias. Cuando 2+ parejas empatan por el ascenso o el descenso,
+ * el organizador decide a mano quién sube/baja (`manualMovement`); hasta entonces
+ * la jornada no se cierra.
+ */
+export async function closeRoundAndAdvancePairs(
+  roundId: string,
+): Promise<MatchState> {
+  const club = await getManagedClub()
+  if (!club) return { error: 'No administras ningún club.' }
+
+  const round = await prisma.leagueRound.findFirst({
+    where: { id: roundId, league: { clubId: club.id } },
+    select: {
+      id: true,
+      leagueId: true,
+      roundNumber: true,
+      scheduledDate: true,
+      league: {
+        select: {
+          playKind: true,
+          playWeekdays: true,
+          playTimes: true,
+          scoringConfig: { select: { rankingBy: true } },
+        },
+      },
+    },
+  })
+  if (!round) return { error: 'Jornada no encontrada.' }
+  if (round.league.playKind !== 'pairs') {
+    return {
+      error: 'El ascenso/descenso de parejas solo aplica a ligas por parejas.',
+    }
+  }
+
+  // Grupos generados para esta jornada (un slot por pareja).
+  const slots = await prisma.leagueGroupSlot.findMany({
+    where: { roundId },
+    select: {
+      registrationId: true,
+      groupNumber: true,
+      attendance: true,
+      manualMovement: true,
+      registration: {
+        select: {
+          playerId: true,
+          partnerPlayerId: true,
+          player: { select: { fullName: true } },
+          partnerPlayer: { select: { fullName: true } },
+        },
+      },
+    },
+  })
+  if (slots.length === 0) {
+    return {
+      error:
+        'Esta jornada no tiene grupos generados. Usa «Generar grupos» antes de cerrarla.',
+    }
+  }
+
+  // Todos los partidos deben estar finalizados.
+  const matches = await prisma.match.findMany({
+    where: { leagueRoundId: roundId },
+    select: {
+      status: true,
+      winnerSide: true,
+      sides: {
+        select: { side: true, players: { select: { playerId: true } } },
+      },
+      sets: { select: { gamesA: true, gamesB: true } },
+    },
+  })
+  if (matches.length === 0) return { error: 'La jornada no tiene partidos.' }
+  const pendingMatches = matches.filter((m) => m.status !== 'finished').length
+  if (pendingMatches > 0) {
+    return {
+      error: `Faltan ${pendingMatches} partido(s) por finalizar antes de cerrar la jornada.`,
+    }
+  }
+
+  // La jornada siguiente debe estar vacía para poder regenerarla.
+  const nextRoundNumber = round.roundNumber + 1
+  const existingNext = await prisma.leagueRound.findUnique({
+    where: {
+      leagueId_roundNumber: {
+        leagueId: round.leagueId,
+        roundNumber: nextRoundNumber,
+      },
+    },
+    select: { id: true, _count: { select: { matches: true } } },
+  })
+  if (existingNext && existingNext._count.matches > 0) {
+    return {
+      error:
+        'La jornada siguiente ya tiene partidos. Elimínalos antes de cerrar esta jornada.',
+    }
+  }
+
+  // Cada grupo de parejas reparte sus 6 partidos en 2 canchas.
+  const courts = await prisma.court.findMany({
+    where: { clubId: club.id, isActive: true },
+    orderBy: { name: 'asc' },
+    select: { id: true },
+  })
+  if (courts.length < 2) {
+    return {
+      error:
+        'Se necesitan al menos 2 canchas activas para generar la jornada siguiente.',
+    }
+  }
+
+  // Parejas que no se presentaron: pierden la jornada (van al fondo de su grupo
+  // y descienden); su pareja suplente cubre los partidos pero sus puntos no
+  // cuentan.
+  const absent = new Set(
+    slots.filter((s) => s.attendance === 'absent').map((s) => s.registrationId),
+  )
+
+  const rankingBy = round.league.scoringConfig?.rankingBy ?? 'sets'
+
+  // Acumula el resultado de cada pareja (solo juega en su grupo esta jornada).
+  const { acc, playerIdsByReg } = buildPairGroupAccs(slots, matches, absent)
+
+  // Decisión manual del organizador para los empates (por inscripción/pareja).
+  const manualByReg = new Map(
+    slots.map((s) => [s.registrationId, s.manualMovement]),
+  )
+
+  // Agrupa por grupo y exige grupos de 4 parejas.
+  const byGroup = new Map<number, string[]>()
+  for (const s of slots) {
+    const list = byGroup.get(s.groupNumber) ?? []
+    list.push(s.registrationId)
+    byGroup.set(s.groupNumber, list)
+  }
+  for (const [g, regs] of byGroup) {
+    if (regs.length !== 4) {
+      return {
+        error: `El grupo ${g} no tiene 4 parejas. El ascenso/descenso requiere grupos de 4.`,
+      }
+    }
+  }
+  const maxGroup = Math.max(...slots.map((s) => s.groupNumber))
+
+  // Clasificación general acumulada (solo jornadas cerradas): ordena los nuevos
+  // grupos (siembra) y desempata qué pareja ausente desciende cuando varias
+  // faltan en el mismo grupo.
+  const standings = await prisma.leagueStanding.findMany({
+    where: { leagueId: round.leagueId },
+    select: {
+      registrationId: true,
+      wins: true,
+      losses: true,
+      setsFor: true,
+      setsAgainst: true,
+      gamesFor: true,
+      gamesAgainst: true,
+    },
+  })
+  const standMap = new Map(standings.map((s) => [s.registrationId, s]))
+  const zero = {
+    wins: 0,
+    losses: 0,
+    setsFor: 0,
+    setsAgainst: 0,
+    gamesFor: 0,
+    gamesAgainst: 0,
+  }
+  // Peor clasificada (clasificación general) de un conjunto de parejas, con
+  // desempate estable por id para coincidir con la vista del organizador.
+  const worstByStandings = (regIds: string[]): string | null => {
+    if (regIds.length === 0) return null
+    return [...regIds].sort(
+      (a, b) =>
+        compareStandings(
+          standMap.get(a) ?? zero,
+          standMap.get(b) ?? zero,
+          rankingBy,
+        ) || a.localeCompare(b),
+    )[regIds.length - 1]
+  }
+
+  const score = (a: PairGroupAcc) => pairScore(a, rankingBy)
+
+  type NextMember = { registrationId: string; newGroup: number }
+  const slotUpdates: {
+    registrationId: string
+    setsWon: number
+    rankInGroup: number
+    movement: 'up' | 'down' | 'stay'
+  }[] = []
+  const nextMembers: NextMember[] = []
+  // Grupos con empate por el ascenso/descenso que el organizador aún no resolvió.
+  const unresolved: string[] = []
+
+  for (const [groupNumber, regIds] of byGroup) {
+    const members = regIds
+      .map((id) => acc.get(id))
+      .filter((m): m is PairGroupAcc => !!m)
+    const { present, hasAbsent, upCandidates, downCandidates } =
+      pairGroupBoundaries(members, groupNumber, maxGroup, absent, rankingBy)
+
+    // Quién sube: única candidata → automático; varias → decisión manual.
+    let upReg: string | null = null
+    let groupUnresolved = false
+    if (upCandidates.length === 1) {
+      upReg = upCandidates[0].registrationId
+    } else if (upCandidates.length > 1) {
+      const chosen = upCandidates.find(
+        (m) => manualByReg.get(m.registrationId) === 'up',
+      )
+      if (chosen) upReg = chosen.registrationId
+      else {
+        unresolved.push(`Grupo ${groupNumber} (ascenso)`)
+        groupUnresolved = true
+      }
+    }
+
+    // Quién baja (solo si no hay ausentes; con ausentes, bajan ellas).
+    let downReg: string | null = null
+    if (downCandidates.length === 1) {
+      downReg = downCandidates[0].registrationId
+    } else if (downCandidates.length > 1) {
+      const chosen = downCandidates.find(
+        (m) => manualByReg.get(m.registrationId) === 'down',
+      )
+      if (chosen) downReg = chosen.registrationId
+      else {
+        unresolved.push(`Grupo ${groupNumber} (descenso)`)
+        groupUnresolved = true
+      }
+    }
+
+    // No fijamos movimiento de un grupo con empates pendientes; se acumulan
+    // todos para un único aviso al final.
+    if (groupUnresolved) continue
+
+    const isLowest = groupNumber >= maxGroup
+    // Con ausentes, el descenso lo ocupa SOLO la peor clasificada de la liga
+    // entre las que faltaron. No se aplica en el grupo más bajo.
+    const absentDownReg =
+      hasAbsent && !isLowest
+        ? worstByStandings(
+            members
+              .filter((m) => absent.has(m.registrationId))
+              .map((m) => m.registrationId),
+          )
+        : null
+
+    // Orden del grupo: la que sube primero, el resto por puntuación, la que baja
+    // al final y las ausentes después, ordenadas por clasificación general.
+    const upM = upReg
+      ? members.find((m) => m.registrationId === upReg)
+      : undefined
+    const downM = downReg
+      ? members.find((m) => m.registrationId === downReg)
+      : undefined
+    const middle = present
+      .filter((m) => m !== upM && m !== downM)
+      .sort((x, y) => score(y) - score(x))
+    const missing = members
+      .filter((m) => absent.has(m.registrationId))
+      .sort(
+        (x, y) =>
+          compareStandings(
+            standMap.get(x.registrationId) ?? zero,
+            standMap.get(y.registrationId) ?? zero,
+            rankingBy,
+          ) || x.registrationId.localeCompare(y.registrationId),
+      )
+    const ordered = [
+      ...(upM ? [upM] : []),
+      ...middle,
+      ...(downM ? [downM] : []),
+      ...missing,
+    ]
+    ordered.forEach((m, i) => {
+      const isAbs = absent.has(m.registrationId)
+      let movement: 'up' | 'down' | 'stay' = 'stay'
+      if (isAbs) {
+        if (m.registrationId === absentDownReg) movement = 'down'
+      } else if (m.registrationId === upReg) movement = 'up'
+      else if (m.registrationId === downReg) movement = 'down'
+      const newGroup =
+        movement === 'up'
+          ? groupNumber - 1
+          : movement === 'down'
+            ? groupNumber + 1
+            : groupNumber
+      slotUpdates.push({
+        registrationId: m.registrationId,
+        setsWon: m.setsWon,
+        rankInGroup: i + 1,
+        movement,
+      })
+      nextMembers.push({ registrationId: m.registrationId, newGroup })
+    })
+  }
+
+  // Empates sin resolver: no se cierra la jornada hasta que el organizador
+  // decida quién sube/baja en cada grupo afectado (aviso en su tarjeta).
+  if (unresolved.length > 0) {
+    return {
+      error: `Hay empates sin resolver: ${unresolved.join(
+        ', ',
+      )}. Decide quién sube y quién baja en cada grupo (verás un aviso de empate) antes de cerrar la jornada.`,
+    }
+  }
+
+  // Nuevos grupos: agrupa por destino y ordena cada uno por clasificación
+  // general (siembra). Se renumeran 1..N de forma secuencial.
+  const nextByGroup = new Map<number, string[]>()
+  for (const nm of nextMembers) {
+    const list = nextByGroup.get(nm.newGroup) ?? []
+    list.push(nm.registrationId)
+    nextByGroup.set(nm.newGroup, list)
+  }
+  const nextGroups = [...nextByGroup.keys()]
+    .sort((a, b) => a - b)
+    .map((g) =>
+      nextByGroup
+        .get(g)!
+        .sort(
+          (a, b) =>
+            compareStandings(
+              standMap.get(a) ?? zero,
+              standMap.get(b) ?? zero,
+              rankingBy,
+            ) || a.localeCompare(b),
+        )
+        .map((registrationId) => ({
+          registrationId,
+          playerIds: playerIdsByReg.get(registrationId) ?? [],
+        })),
+    )
+
+  // Defensa: el reparto rotativo exige grupos de 4 parejas. Las ausencias pueden
+  // desbalancear los grupos resultantes; si ocurre, no generamos una jornada
+  // rota y avisamos al organizador.
+  const broken = nextGroups.findIndex((g) => g.length !== 4)
+  if (broken !== -1) {
+    return {
+      error:
+        'El ascenso/descenso deja algún grupo sin 4 parejas (suele pasar con ausencias). Ajusta la asistencia o los grupos antes de cerrar la jornada.',
+    }
+  }
+
+  // Calendario de la jornada siguiente: el próximo día de juego de la liga a
+  // partir de la fecha de esta jornada (o de hoy si se cerró con retraso). Esa
+  // fecha se copia a los partidos con la primera hora configurada; el organizador
+  // ajusta luego horarios y canchas.
+  const now = new Date()
+  const base =
+    round.scheduledDate && round.scheduledDate > now ? round.scheduledDate : now
+  const nextPlayDate = nextLeaguePlayDate(base, round.league.playWeekdays)
+  const nextYmd = nextPlayDate?.toISOString().slice(0, 10) ?? null
+  const firstTime =
+    round.league.playTimes.find((t) => HHMM_RE.test(t)) ?? '12:00'
+  const nextScheduledDate = nextYmd
+    ? new Date(`${nextYmd}T00:00:00.000Z`)
+    : null
+  const nextScheduledAt = nextYmd ? new Date(`${nextYmd}T${firstTime}:00`) : null
+
+  // 1) Guarda el resultado de los slots de ESTA jornada y ciérrala (bloqueada).
+  await prisma.$transaction([
+    ...slotUpdates.map((u) =>
+      prisma.leagueGroupSlot.update({
+        where: {
+          roundId_registrationId: { roundId, registrationId: u.registrationId },
+        },
+        data: {
+          setsWon: u.setsWon,
+          rankInGroup: u.rankInGroup,
+          movement: u.movement,
+        },
+      }),
+    ),
+    prisma.leagueRound.update({
+      where: { id: roundId },
+      data: { status: 'closed' },
+    }),
+  ])
+
+  // La clasificación solo cuenta jornadas cerradas: súmale ahora esta.
+  await recomputeStandings(round.leagueId)
+
+  // 2) Crea o reutiliza (si está vacía) la jornada siguiente y genera sus grupos.
+  const nextRoundId =
+    existingNext?.id ??
+    (
+      await prisma.leagueRound.create({
+        data: {
+          leagueId: round.leagueId,
+          roundNumber: nextRoundNumber,
+          scheduledDate: nextScheduledDate,
+        },
+        select: { id: true },
+      })
+    ).id
+
+  if (existingNext) {
+    await prisma.leagueRound.update({
+      where: { id: nextRoundId },
+      data: { scheduledDate: nextScheduledDate },
+    })
+    await prisma.leagueGroupSlot.deleteMany({ where: { roundId: nextRoundId } })
+  }
+
+  // Cada grupo recibe 2 canchas de forma cíclica entre las canchas activas.
+  await persistPairGroups(
+    club.id,
+    round.leagueId,
+    nextRoundId,
+    nextGroups.map((members, gi) => ({
+      groupNumber: gi + 1,
+      courtAId: courts[(gi * 2) % courts.length].id,
+      courtBId: courts[(gi * 2 + 1) % courts.length].id,
+      members,
+      scheduledAt: nextScheduledAt,
+    })),
+  )
+
+  revalidatePath(`/dashboard/ligas/${round.leagueId}`)
+  revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${roundId}`)
+  revalidatePath(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
+  // Lleva al organizador a la jornada recién generada. `redirect` lanza, así que
+  // esta acción no retorna aquí.
   redirect(`/dashboard/ligas/${round.leagueId}/jornadas/${nextRoundId}`)
 }
 

@@ -4,6 +4,8 @@ import { useActionState, useEffect, useRef, useState, useTransition } from 'reac
 import {
   ClipboardCheck,
   Clock,
+  FlagTriangleRight,
+  Lock,
   Plus,
   Save,
   Search,
@@ -19,6 +21,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DurationSelect } from '@/components/dashboard/duration-select'
 import {
   captureGroupResults,
+  closeRoundAndAdvancePairs,
   createPairGroup,
   deleteGroup,
   generatePairGroupsFromStandings,
@@ -131,6 +134,68 @@ function GeneratePairGroupsButton({ roundId }: { roundId: string }) {
       </div>
       {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
     </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cerrar jornada (ascenso/descenso → genera la siguiente)                    */
+/* -------------------------------------------------------------------------- */
+
+function ClosePairRoundButton({
+  roundId,
+  lockReason,
+}: {
+  roundId: string
+  /** Si está definido, el cierre está bloqueado y este es el motivo. */
+  lockReason?: string
+}) {
+  const boundAction = closeRoundAndAdvancePairs.bind(null, roundId)
+  const [state, formAction, pending] = useActionState(boundAction, initialState)
+  const locked = !!lockReason
+
+  return (
+    <form
+      action={formAction}
+      className="rounded-xl border border-dashed border-border bg-card/50 p-4"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-foreground">Cerrar jornada</p>
+          <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            {locked ? (
+              <>
+                <Lock className="size-3" strokeWidth={2} />
+                <span className="text-terracotta">{lockReason}</span>
+              </>
+            ) : (
+              'Calcula ascensos y descensos · genera la jornada siguiente'
+            )}
+          </p>
+        </div>
+        <Button
+          type="submit"
+          variant="outline"
+          className="h-9 shrink-0 gap-1.5 rounded-md px-4 text-sm"
+          disabled={pending || locked}
+          title={locked ? lockReason : undefined}
+          aria-disabled={locked}
+        >
+          {locked ? (
+            <Lock className="size-4" strokeWidth={2} />
+          ) : (
+            <FlagTriangleRight className="size-4" strokeWidth={2} />
+          )}
+          {pending
+            ? 'Cerrando…'
+            : locked
+              ? 'Bloqueado'
+              : 'Cerrar y generar siguiente'}
+        </Button>
+      </div>
+      {state.error && (
+        <p className="mt-2 text-xs text-destructive">{state.error}</p>
+      )}
+    </form>
   )
 }
 
@@ -1165,6 +1230,23 @@ export function PairRoundMatches({
     ? groups.filter((g) => groupNames(g).some((n) => normalizeText(n).includes(q)))
     : groups
 
+  // Candado de cierre: no se puede cerrar y generar la siguiente jornada hasta
+  // que todos los grupos (todos sus partidos) estén finalizados.
+  const unfinishedGroups = groups.filter(
+    (g) => !g.matches.every((m) => m.status === 'finished'),
+  ).length
+  const pendingMatches = matches.filter((m) => m.status !== 'finished').length
+  const lockReason =
+    pendingMatches === 0
+      ? undefined
+      : unfinishedGroups > 0
+        ? `Faltan ${unfinishedGroups} grupo${
+            unfinishedGroups === 1 ? '' : 's'
+          } por finalizar`
+        : `Faltan ${pendingMatches} partido${
+            pendingMatches === 1 ? '' : 's'
+          } por finalizar`
+
   return (
     <section className="space-y-5">
       {teams.length < 4 ? (
@@ -1247,6 +1329,7 @@ export function PairRoundMatches({
               />
             ))}
           </div>
+          <ClosePairRoundButton roundId={roundId} lockReason={lockReason} />
         </>
       )}
     </section>

@@ -18,12 +18,12 @@ export function Breadcrumb({
 }) {
   return (
     <div className="border-b border-border bg-cream">
-      <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-6 py-3 md:px-12">
-        <nav className="flex min-w-0 items-center gap-2 font-mono text-xs uppercase tracking-wider">
+      <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6 md:px-12">
+        <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap font-mono text-xs uppercase tracking-wider [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {items.map((item, i) => {
             const isLast = i === items.length - 1
             return (
-              <span key={`${item.label}-${i}`} className="flex min-w-0 items-center gap-2">
+              <span key={`${item.label}-${i}`} className="flex shrink-0 items-center gap-2">
                 {i > 0 && <span className="text-muted-foreground">/</span>}
                 {item.href && !isLast ? (
                   <Link
@@ -33,7 +33,7 @@ export function Breadcrumb({
                     {item.label}
                   </Link>
                 ) : (
-                  <span className="truncate font-semibold text-ink">{item.label}</span>
+                  <span className="font-semibold text-ink">{item.label}</span>
                 )}
               </span>
             )

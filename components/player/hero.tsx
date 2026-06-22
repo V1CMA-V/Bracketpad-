@@ -39,13 +39,13 @@ export function Hero({
   const tail = rest.join(' ')
 
   return (
-    <section className="bg-cream px-6 py-12 md:px-12 md:py-16">
+    <section className="bg-cream px-5 py-12 sm:px-6 md:px-12 md:py-16">
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
         {/* Columna izquierda — identidad */}
         <div className="flex flex-col">
-          <div className="flex items-start gap-6">
+          <div className="flex items-start gap-4 sm:gap-6">
             <div className="relative shrink-0">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-ink font-heading text-3xl text-cream">
+              <div className="flex size-16 items-center justify-center rounded-full bg-ink font-heading text-2xl text-cream sm:size-20 sm:text-3xl">
                 {initials}
               </div>
               <span className="absolute -right-1 -bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-terracotta font-mono text-[10px] text-cream ring-2 ring-cream">
@@ -58,7 +58,7 @@ export function Hero({
             </div>
           </div>
 
-          <h1 className="mt-10 font-heading text-6xl leading-[1.05] tracking-tight text-ink md:text-7xl lg:text-[5.5rem]">
+          <h1 className="mt-8 font-heading text-5xl leading-[1.05] tracking-tight text-ink [overflow-wrap:anywhere] sm:mt-10 sm:text-6xl md:text-7xl lg:text-[5.5rem]">
             {first}{' '}
             <span className="block">
               {tail}
@@ -84,21 +84,21 @@ export function Hero({
             ))}
           </dl>
 
-          <div className="mt-10 flex flex-wrap items-center gap-4">
+          <div className="mt-10 flex flex-wrap items-center gap-3 sm:gap-4">
             <button className="flex items-center gap-2 rounded-md bg-terracotta px-5 py-2.5 font-mono text-sm text-cream transition-colors hover:bg-terracotta/90">
               Seguir jugador <Plus className="size-4" strokeWidth={1.5} />
             </button>
             <button className="flex items-center gap-2 rounded-md border border-ink/20 px-5 py-2.5 font-mono text-sm text-ink transition-colors hover:bg-ink/5">
               Compartir ficha <Share2 className="size-4" strokeWidth={1.5} />
             </button>
-            <span className="ml-auto font-mono text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="w-full font-mono text-xs uppercase tracking-wider text-muted-foreground sm:ml-auto sm:w-auto">
               {followers.toLocaleString('es-ES')} Seguidores
             </span>
           </div>
         </div>
 
         {/* Columna derecha — tarjeta de ranking */}
-        <div className="flex flex-col rounded-xl bg-forest p-7 text-cream md:p-9">
+        <div className="flex flex-col rounded-xl bg-forest p-6 text-cream sm:p-7 md:p-9">
           <div className="flex items-center justify-between font-mono text-xs uppercase tracking-widest">
             <span className="text-lime">Ranking · Temporada 2026</span>
             <span className="text-cream/55">Comunidad Valenciana</span>

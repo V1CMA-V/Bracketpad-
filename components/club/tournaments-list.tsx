@@ -50,12 +50,12 @@ export function TournamentsList({
   return (
     <>
       {/* Encabezado */}
-      <section className="border-b border-border bg-cream px-6 py-14 md:px-12">
+      <section className="border-b border-border bg-cream px-5 py-14 sm:px-6 md:px-12">
         <div className="mx-auto max-w-[1400px]">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
             {clubName} · Torneos
           </p>
-          <h1 className="mt-4 font-heading text-6xl leading-[1.02] tracking-tight text-ink md:text-7xl">
+          <h1 className="mt-4 font-heading text-5xl leading-[1.05] tracking-tight text-ink sm:text-6xl md:text-7xl">
             La cartelera <em className="italic">del club.</em>
           </h1>
           <p className="mt-5 max-w-xl font-serif text-lg italic leading-relaxed text-ink/80">
@@ -80,7 +80,7 @@ export function TournamentsList({
       </section>
 
       {/* Listado */}
-      <section className="bg-background px-6 py-16 md:px-12">
+      <section className="bg-background px-5 py-16 sm:px-6 md:px-12">
         <div className="mx-auto max-w-[1400px]">
           {/* Filtros */}
           <div className="flex flex-wrap items-center gap-2">

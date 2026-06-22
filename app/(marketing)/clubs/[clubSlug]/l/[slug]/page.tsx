@@ -469,36 +469,36 @@ export default async function PublicLeaguePage({
     <div>
       {/* Breadcrumb */}
       <div className="border-b border-border bg-cream">
-        <nav className="mx-auto flex max-w-[1400px] items-center gap-2 px-6 py-3 font-mono text-xs uppercase tracking-wider md:px-12">
+        <nav className="mx-auto flex max-w-[1400px] items-center gap-2 overflow-x-auto whitespace-nowrap px-4 py-3 font-mono text-xs uppercase tracking-wider sm:px-6 md:px-12 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Link
             href="/clubs"
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
           >
             Clubes
           </Link>
-          <span className="text-muted-foreground">/</span>
+          <span className="shrink-0 text-muted-foreground">/</span>
           <Link
             href={`/clubs/${club.slug}`}
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
           >
             {club.name}
           </Link>
-          <span className="text-muted-foreground">/</span>
+          <span className="shrink-0 text-muted-foreground">/</span>
           <Link
             href={`/clubs/${club.slug}/ligas`}
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
           >
             Ligas
           </Link>
-          <span className="text-muted-foreground">/</span>
-          <span className="font-semibold text-ink">{league.name}</span>
+          <span className="shrink-0 text-muted-foreground">/</span>
+          <span className="shrink-0 font-semibold text-ink">{league.name}</span>
         </nav>
       </div>
 
       {/* Hero */}
-      <section className="border-b border-border bg-cream px-6 py-14 md:px-12">
+      <section className="border-b border-border bg-cream px-5 py-14 sm:px-6 md:px-12">
         <div className="mx-auto max-w-[1400px]">
-          <p className="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
             <span className="flex items-center gap-2 text-terracotta">
               <span className="size-1.5 rounded-full bg-terracotta" />
               {statusLabel}
@@ -509,7 +509,7 @@ export default async function PublicLeaguePage({
             <span>{club.name}</span>
           </p>
 
-          <h1 className="mt-5 font-heading text-6xl leading-[1.02] tracking-tight text-ink md:text-7xl">
+          <h1 className="mt-5 font-heading text-5xl leading-[1.05] tracking-tight text-ink [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
             {league.name}
           </h1>
 
@@ -537,7 +537,7 @@ export default async function PublicLeaguePage({
       </section>
 
       {/* Cuerpo */}
-      <section className="bg-background px-6 py-14 md:px-12">
+      <section className="bg-background px-5 py-14 sm:px-6 md:px-12">
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-x-12 gap-y-14 lg:grid-cols-[minmax(0,1fr)_340px]">
           {/* Columna principal */}
           <div className="space-y-14">

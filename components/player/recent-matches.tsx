@@ -25,6 +25,25 @@ const MATCHES: MatchRow[] = [
 const COLS =
   'grid grid-cols-[80px_minmax(0,1.4fr)_90px_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_72px] items-center gap-4'
 
+/** Marcador set a set «6·4 · 6·3», compartido por la tabla y las tarjetas. */
+function Score({ sets }: { sets: SetScore[] }) {
+  return (
+    <span className="shrink-0 whitespace-nowrap font-mono text-sm text-ink tabular-nums">
+      {sets.map((s, idx) => (
+        <span key={idx}>
+          {idx > 0 && <span className="mx-1.5 text-muted-foreground">·</span>}
+          <span>
+            {s.a}·{s.b}
+            {s.tb !== undefined && (
+              <sup className="ml-0.5 text-[0.6em] text-muted-foreground">{s.tb}</sup>
+            )}
+          </span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function RecentMatches() {
   return (
     <section className="mx-auto w-full max-w-[1600px] px-6 md:px-8">
@@ -47,7 +66,8 @@ export function RecentMatches() {
         </div>
       </div>
 
-      <div className="mt-8 overflow-x-auto rounded-lg border border-border">
+      {/* Tabla (≥ lg) */}
+      <div className="mt-8 hidden overflow-x-auto rounded-lg border border-border lg:block">
         <div className="min-w-[860px]">
           <div
             className={`${COLS} border-b border-border bg-muted/40 px-5 py-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground`}
@@ -81,23 +101,7 @@ export function RecentMatches() {
               <span className="font-serif text-base italic text-muted-foreground">
                 {m.rival}
               </span>
-              <span className="font-mono text-sm text-ink tabular-nums">
-                {m.sets.map((s, idx) => (
-                  <span key={idx}>
-                    {idx > 0 && (
-                      <span className="mx-1.5 text-muted-foreground">·</span>
-                    )}
-                    <span>
-                      {s.a}·{s.b}
-                      {s.tb !== undefined && (
-                        <sup className="ml-0.5 text-[0.6em] text-muted-foreground">
-                          {s.tb}
-                        </sup>
-                      )}
-                    </span>
-                  </span>
-                ))}
-              </span>
+              <Score sets={m.sets} />
               <span
                 className={cn(
                   'justify-self-end rounded-sm px-2 py-1 font-mono text-[11px] uppercase tracking-widest',
@@ -112,6 +116,50 @@ export function RecentMatches() {
           ))}
         </div>
       </div>
+
+      {/* Tarjetas (móvil / tablet) */}
+      <ul className="mt-8 flex flex-col gap-3 lg:hidden">
+        {MATCHES.map((m, i) => (
+          <li
+            key={i}
+            className={cn(
+              'rounded-lg border border-border bg-card p-4',
+              'border-l-2',
+              m.won ? 'border-l-forest' : 'border-l-terracotta',
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-heading text-lg leading-tight text-ink">
+                  {m.competition}
+                </p>
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {m.date} · {m.round}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  'shrink-0 rounded-sm px-2 py-1 font-mono text-[10px] uppercase tracking-widest',
+                  m.won ? 'bg-forest text-cream' : 'bg-terracotta text-cream',
+                )}
+              >
+                {m.won ? 'Gana' : 'Pierde'}
+              </span>
+            </div>
+
+            <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
+              <p className="min-w-0 text-sm leading-snug text-muted-foreground">
+                <span className="font-mono text-[10px] uppercase tracking-widest">
+                  Con{' '}
+                </span>
+                <span className="text-ink">{m.partner}</span>
+                <span className="font-serif italic"> · vs {m.rival}</span>
+              </p>
+              <Score sets={m.sets} />
+            </div>
+          </li>
+        ))}
+      </ul>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
         <span>6 de 184 partidos</span>

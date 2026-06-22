@@ -75,12 +75,12 @@ export function Hero({
     pieces.join(' · ') + (city ? `. Pádel en ${city}.` : '.')
 
   return (
-    <section className="bg-cream px-6 py-12 md:px-12 md:py-16">
+    <section className="bg-cream px-5 py-12 sm:px-6 md:px-12 md:py-16">
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
         {/* Columna izquierda */}
         <div className="flex flex-col">
-          <div className="flex items-start gap-6">
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-ink font-heading text-3xl text-cream">
+          <div className="flex items-start gap-4 sm:gap-6">
+            <div className="flex size-16 shrink-0 items-center justify-center rounded-full bg-ink font-heading text-2xl text-cream sm:size-20 sm:text-3xl">
               {initial}
             </div>
             <div className="flex flex-col gap-1 pt-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
@@ -93,7 +93,7 @@ export function Hero({
             </div>
           </div>
 
-          <h1 className="mt-10 font-heading text-6xl italic leading-[1.05] tracking-tight text-ink md:text-7xl lg:text-[5.5rem]">
+          <h1 className="mt-8 font-heading text-5xl italic leading-[1.05] tracking-tight text-ink [overflow-wrap:anywhere] sm:mt-10 sm:text-6xl md:text-7xl lg:text-[5.5rem]">
             {first}{' '}
             {tail && (
               <span className="block">
@@ -107,7 +107,7 @@ export function Hero({
             {description}
           </p>
 
-          <div className="mt-12 flex items-center gap-4">
+          <div className="mt-10 flex flex-wrap items-center gap-3 sm:mt-12 sm:gap-4">
             <Button className="gap-2 bg-terracotta px-5 py-2.5 text-cream hover:bg-terracotta/90">
               Seguir al club <Plus className="h-4 w-4" />
             </Button>
@@ -125,7 +125,7 @@ export function Hero({
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
-            <span className="ml-auto font-mono text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="w-full font-mono text-xs uppercase tracking-wider text-muted-foreground sm:ml-auto sm:w-auto">
               {playersCount.toLocaleString('es-ES')}{' '}
               {playersCount === 1 ? 'jugador' : 'jugadores'}
             </span>
@@ -134,7 +134,7 @@ export function Hero({
 
         {/* Columna derecha — mapa de pistas */}
         <div
-          className="relative overflow-hidden rounded-sm bg-forest p-8 text-cream"
+          className="relative overflow-hidden rounded-sm bg-forest p-6 text-cream sm:p-8"
           style={{
             backgroundImage:
               'repeating-linear-gradient(135deg, transparent 0 14px, rgba(255,255,255,0.04) 14px 15px)',

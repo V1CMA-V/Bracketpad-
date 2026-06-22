@@ -209,7 +209,7 @@ export default async function TorneoCategoriaPage({
       />
 
       {/* Hero de categoría */}
-      <section className="border-b border-border bg-cream px-6 py-12 md:px-12 md:py-14">
+      <section className="border-b border-border bg-cream px-5 py-12 sm:px-6 md:px-12 md:py-14">
         <div className="mx-auto max-w-[1400px]">
           <div className="flex flex-wrap items-center gap-3 font-mono text-xs uppercase tracking-wider text-muted-foreground">
             <span className="h-px w-10 bg-muted-foreground/60" />
@@ -221,7 +221,7 @@ export default async function TorneoCategoriaPage({
             <span>{drawTypeLabels[category.drawType] ?? category.drawType}</span>
           </div>
 
-          <h1 className="mt-6 font-heading text-6xl leading-[0.95] tracking-tight text-ink md:text-7xl">
+          <h1 className="mt-6 font-heading text-5xl leading-[0.95] tracking-tight text-ink [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
             {category.name}
           </h1>
           <p className="mt-4 font-serif text-lg italic text-ink/80">
@@ -245,7 +245,7 @@ export default async function TorneoCategoriaPage({
         </div>
       </section>
 
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-16 px-6 py-14 md:px-12">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-16 px-5 py-14 sm:px-6 md:px-12">
         {/* Grupos */}
         {groups.length > 0 && (
           <section>
@@ -276,7 +276,7 @@ export default async function TorneoCategoriaPage({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                        <th className="px-5 py-2 text-left font-normal">#</th>
+                        <th className="px-4 py-2 text-left font-normal sm:px-5">#</th>
                         <th className="px-2 py-2 text-left font-normal">Pareja</th>
                         <th className="px-2 py-2 text-center font-normal">PJ</th>
                         <th className="px-2 py-2 text-center font-normal">G</th>
@@ -289,7 +289,7 @@ export default async function TorneoCategoriaPage({
                         const qualifies = g.advance > 0 && i < g.advance
                         return (
                           <tr key={row.teamId} className={qualifies ? 'bg-forest/[0.04]' : ''}>
-                            <td className="px-5 py-2.5">
+                            <td className="px-4 py-2.5 sm:px-5">
                               <span
                                 className={`inline-flex size-5 items-center justify-center rounded-full font-mono text-[11px] ${
                                   qualifies ? 'bg-forest text-cream' : 'text-muted-foreground'
@@ -298,7 +298,9 @@ export default async function TorneoCategoriaPage({
                                 {i + 1}
                               </span>
                             </td>
-                            <td className="px-2 py-2.5 text-ink">{labelFor(row.teamId)}</td>
+                            <td className="max-w-0 truncate px-2 py-2.5 text-ink">
+                              {labelFor(row.teamId)}
+                            </td>
                             <td className="px-2 py-2.5 text-center tabular-nums text-muted-foreground">
                               {row.played}
                             </td>

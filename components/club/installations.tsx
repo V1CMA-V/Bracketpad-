@@ -56,7 +56,7 @@ export function Installations({
   return (
     <section
       id="instalaciones"
-      className="scroll-mt-20 bg-cream px-6 py-16 md:px-12"
+      className="scroll-mt-20 bg-cream px-5 py-16 sm:px-6 md:px-12"
     >
       <div className="mx-auto max-w-[1400px]">
         <div className="flex flex-wrap items-end justify-between gap-6">

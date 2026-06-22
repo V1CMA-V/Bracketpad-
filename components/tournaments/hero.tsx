@@ -25,7 +25,7 @@ export function Hero({
   featured: FeaturedTournament | null
 }) {
   return (
-    <section className="bg-cream px-6 py-14 md:px-12 md:py-16">
+    <section className="bg-cream px-5 py-14 sm:px-6 md:px-12 md:py-16">
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
         {/* Columna izquierda */}
         <div className="flex flex-col">
@@ -33,7 +33,7 @@ export function Hero({
             Directorio · Temporada 2026
           </p>
 
-          <h1 className="mt-5 font-heading text-6xl leading-[1.02] tracking-tight text-ink md:text-7xl lg:text-[5.5rem]">
+          <h1 className="mt-5 font-heading text-5xl leading-[1.02] tracking-tight text-ink sm:text-6xl md:text-7xl lg:text-[5.5rem]">
             Todos los{' '}
             <span className="block">
               <em className="italic">torneos.</em>
@@ -68,7 +68,7 @@ export function Hero({
         {featured ? (
           <Link
             href={featured.href}
-            className="group flex flex-col rounded-xl bg-forest p-7 text-cream transition-colors hover:bg-forest/95 md:p-9"
+            className="group flex flex-col rounded-xl bg-forest p-6 text-cream transition-colors hover:bg-forest/95 sm:p-7 md:p-9"
             style={{
               backgroundImage:
                 'repeating-linear-gradient(135deg, transparent 0 18px, rgba(255,255,255,0.04) 18px 19px)',
@@ -82,7 +82,7 @@ export function Hero({
               <span className="text-cream/55">{featured.dates}</span>
             </div>
 
-            <h2 className="mt-6 font-heading text-5xl leading-[0.95] tracking-tight text-cream md:text-6xl">
+            <h2 className="mt-6 font-heading text-4xl leading-[0.95] tracking-tight text-cream [overflow-wrap:anywhere] sm:text-5xl md:text-6xl">
               {featured.name}
             </h2>
             <p className="mt-4 max-w-sm font-serif text-base italic leading-relaxed text-cream/70">

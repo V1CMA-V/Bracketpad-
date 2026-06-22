@@ -108,11 +108,11 @@ export function InfoClub({
   ]
 
   return (
-    <section className="bg-cream px-6 py-16 md:px-12">
+    <section className="bg-cream px-5 py-16 sm:px-6 md:px-12">
       <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-start gap-6 lg:grid-cols-2">
         {/* Tarjeta ubicación */}
         <article
-          className="relative flex aspect-[5/3] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-8"
+          className="relative flex min-h-[300px] flex-col justify-between overflow-hidden rounded-md border border-border bg-card p-6 sm:aspect-[5/3] sm:min-h-0 sm:p-8"
           style={{
             backgroundImage:
               'repeating-linear-gradient(0deg, transparent 0 39px, rgba(0,0,0,0.04) 39px 40px),' +
@@ -123,7 +123,7 @@ export function InfoClub({
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
               Cómo llegar
             </p>
-            <h3 className="mt-3 font-heading text-4xl leading-tight text-ink">
+            <h3 className="mt-3 font-heading text-3xl leading-tight text-ink [overflow-wrap:anywhere] sm:text-4xl">
               {address ? (
                 <em className="italic">{address}.</em>
               ) : (
@@ -166,8 +166,8 @@ export function InfoClub({
             </svg>
           </div>
 
-          <footer className="relative flex items-end justify-between gap-6">
-            <dl className="grid flex-1 grid-cols-3 gap-6 font-mono text-xs">
+          <footer className="relative flex items-end justify-between gap-4 sm:gap-6">
+            <dl className="grid flex-1 grid-cols-3 gap-3 font-mono text-xs sm:gap-6">
               {facts.map((item) => (
                 <div key={item.label} className="flex flex-col gap-1">
                   <dt className="uppercase tracking-wider text-muted-foreground">
@@ -191,7 +191,7 @@ export function InfoClub({
         </article>
 
         {/* Tarjeta horario + contacto */}
-        <article className="flex flex-col rounded-md border border-border bg-card p-8">
+        <article className="flex flex-col rounded-md border border-border bg-card p-6 sm:p-8">
           <header>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
               Horario · Contacto

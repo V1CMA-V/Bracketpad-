@@ -33,15 +33,15 @@ export function Directory({ items }: { items: PublicTournamentItem[] }) {
   }, [filter, query, items])
 
   return (
-    <section className="bg-background px-6 py-16 md:px-12">
+    <section className="bg-background px-5 py-14 sm:px-6 sm:py-16 md:px-12">
       <div className="mx-auto max-w-[1400px]">
         {/* Encabezado */}
-        <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-6">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
               Cartelera · {items.length} {items.length === 1 ? 'torneo' : 'torneos'}
             </p>
-            <h2 className="mt-3 font-heading text-5xl leading-none text-ink md:text-6xl">
+            <h2 className="mt-3 font-heading text-4xl leading-none text-ink sm:text-5xl md:text-6xl">
               Encuentra tu <em className="italic">cuadro.</em>
             </h2>
           </div>

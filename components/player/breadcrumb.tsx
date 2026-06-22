@@ -14,28 +14,28 @@ export function Breadcrumb({
   void path
   return (
     <div className="border-b border-border bg-cream">
-      <div className="flex items-center justify-between px-6 py-3 font-mono text-xs uppercase tracking-wider text-ink">
-        <nav className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 font-mono text-xs uppercase tracking-wider text-ink sm:px-6">
+        <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Link
             href="/"
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
           >
             Jugadores
           </Link>
-          <span className="text-muted-foreground">/</span>
+          <span className="hidden shrink-0 text-muted-foreground sm:inline">/</span>
           <Link
             href="/"
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="hidden shrink-0 text-muted-foreground transition-colors hover:text-ink sm:inline"
           >
             {region}
           </Link>
-          <span className="text-muted-foreground">/</span>
-          <span className="font-semibold text-ink">{player}</span>
+          <span className="shrink-0 text-muted-foreground">/</span>
+          <span className="shrink-0 font-semibold text-ink">{player}</span>
         </nav>
         {liveNow ? (
           <Link
             href="#"
-            className="flex items-center gap-2 text-terracotta transition-opacity hover:opacity-80"
+            className="flex shrink-0 items-center gap-2 text-terracotta transition-opacity hover:opacity-80"
           >
             <span className="text-[0.7em]">●</span>
             <span className="underline decoration-1 underline-offset-4">
@@ -43,7 +43,9 @@ export function Breadcrumb({
             </span>
           </Link>
         ) : (
-          <span className="text-muted-foreground">Ficha pública</span>
+          <span className="hidden shrink-0 text-muted-foreground sm:inline">
+            Ficha pública
+          </span>
         )}
       </div>
     </div>

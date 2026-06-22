@@ -397,28 +397,28 @@ export default async function ClubPage({
     <div>
       {/* Breadcrumb */}
       <div className="border-b border-border bg-cream">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-3 font-mono text-xs uppercase tracking-wider text-ink md:px-12">
-          <nav className="flex items-center gap-2">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3 px-4 py-3 font-mono text-xs uppercase tracking-wider text-ink sm:px-6 md:px-12">
+          <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <Link
               href="/clubs"
-              className="text-muted-foreground transition-colors hover:text-ink"
+              className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
             >
               Clubes
             </Link>
             {club.city && (
               <>
-                <span className="text-muted-foreground">/</span>
-                <span className="text-muted-foreground">{club.city}</span>
+                <span className="shrink-0 text-muted-foreground">/</span>
+                <span className="shrink-0 text-muted-foreground">{club.city}</span>
               </>
             )}
-            <span className="text-muted-foreground">/</span>
-            <span className="font-semibold text-ink">{club.name}</span>
+            <span className="shrink-0 text-muted-foreground">/</span>
+            <span className="shrink-0 font-semibold text-ink">{club.name}</span>
           </nav>
 
           {liveCourts > 0 ? (
             <Link
               href="#instalaciones"
-              className="flex items-center gap-2 text-terracotta transition-opacity hover:opacity-80"
+              className="flex shrink-0 items-center gap-2 text-terracotta transition-opacity hover:opacity-80"
             >
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-terracotta opacity-75" />
@@ -431,7 +431,7 @@ export default async function ClubPage({
           ) : (
             <Link
               href={`/clubs/${club.slug}/torneos`}
-              className="text-muted-foreground transition-colors hover:text-ink"
+              className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
             >
               Ver torneos
             </Link>

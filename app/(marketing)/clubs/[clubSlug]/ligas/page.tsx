@@ -81,32 +81,32 @@ export default async function ClubLeaguesPage({
     <div>
       {/* Breadcrumb */}
       <div className="border-b border-border bg-cream">
-        <nav className="mx-auto flex max-w-[1400px] items-center gap-2 px-6 py-3 font-mono text-xs uppercase tracking-wider md:px-12">
+        <nav className="mx-auto flex max-w-[1400px] items-center gap-2 overflow-x-auto whitespace-nowrap px-4 py-3 font-mono text-xs uppercase tracking-wider sm:px-6 md:px-12 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Link
             href="/clubs"
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
           >
             Clubes
           </Link>
-          <span className="text-muted-foreground">/</span>
+          <span className="shrink-0 text-muted-foreground">/</span>
           <Link
             href={`/clubs/${club.slug}`}
-            className="text-muted-foreground transition-colors hover:text-ink"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-ink"
           >
             {club.name}
           </Link>
-          <span className="text-muted-foreground">/</span>
-          <span className="font-semibold text-ink">Ligas</span>
+          <span className="shrink-0 text-muted-foreground">/</span>
+          <span className="shrink-0 font-semibold text-ink">Ligas</span>
         </nav>
       </div>
 
       {/* Encabezado */}
-      <section className="border-b border-border bg-cream px-6 py-14 md:px-12">
+      <section className="border-b border-border bg-cream px-5 py-14 sm:px-6 md:px-12">
         <div className="mx-auto max-w-[1400px]">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
             {club.name} · Ligas
           </p>
-          <h1 className="mt-4 font-heading text-6xl leading-[1.02] tracking-tight text-ink md:text-7xl">
+          <h1 className="mt-4 font-heading text-5xl leading-[1.05] tracking-tight text-ink sm:text-6xl md:text-7xl">
             Las ligas <em className="italic">del club.</em>
           </h1>
           <p className="mt-5 max-w-xl font-serif text-lg italic leading-relaxed text-ink/80">
@@ -128,7 +128,7 @@ export default async function ClubLeaguesPage({
       </section>
 
       {/* Listado */}
-      <section className="bg-background px-6 py-16 md:px-12">
+      <section className="bg-background px-5 py-16 sm:px-6 md:px-12">
         <div className="mx-auto max-w-[1400px]">
           {leagues.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card py-20 text-center">

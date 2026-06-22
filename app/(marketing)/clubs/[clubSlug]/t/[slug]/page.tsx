@@ -318,7 +318,7 @@ export default async function TournamentPage({
               </span>
             </div>
 
-            <h1 className="mt-8 font-heading text-6xl font-bold leading-[0.95] tracking-tight text-ink md:text-7xl lg:text-8xl">
+            <h1 className="mt-8 font-heading text-[2.75rem] font-bold leading-[0.95] tracking-tight text-ink [overflow-wrap:anywhere] sm:text-6xl md:text-7xl lg:text-8xl">
               {tournament.name}
             </h1>
 
@@ -826,7 +826,7 @@ function FeaturedMatch({
   return (
     <Link
       href={href}
-      className="group relative flex flex-col overflow-hidden rounded-sm bg-forest p-8 text-cream"
+      className="group relative flex flex-col overflow-hidden rounded-sm bg-forest p-6 text-cream sm:p-8"
       style={{
         backgroundImage:
           'repeating-linear-gradient(135deg, transparent 0 14px, rgba(255,255,255,0.04) 14px 15px)',

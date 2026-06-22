@@ -26,14 +26,14 @@ export function Competitions({
   const total = items.length
 
   return (
-    <section className="bg-cream px-6 py-16 md:px-12">
+    <section className="bg-cream px-5 py-16 sm:px-6 md:px-12">
       <div className="mx-auto max-w-[1400px]">
-        <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-6">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
               Cartelera del club
             </p>
-            <h2 className="mt-3 font-heading text-5xl leading-none text-ink md:text-6xl">
+            <h2 className="mt-3 font-heading text-4xl leading-none text-ink sm:text-5xl md:text-6xl">
               {total === 0 ? (
                 <>
                   Sin competiciones <em className="italic">aún.</em>
@@ -82,29 +82,32 @@ export function Competitions({
                 key={`${t.kind}-${t.id}`}
                 href={t.href}
                 className={
-                  'group flex w-full items-center gap-6 px-6 py-6 text-left transition-colors hover:bg-muted/40 ' +
+                  'group flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/40 sm:gap-6 sm:px-6 sm:py-6 ' +
                   (i > 0 ? 'border-t border-border' : '')
                 }
               >
-                <span className="w-12 shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span className="hidden w-12 shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:block">
                   {t.kind}
                 </span>
 
-                <div className="min-w-0 flex-[2]">
-                  <p className="truncate font-heading text-2xl leading-tight text-ink">
+                <div className="min-w-0 flex-1 sm:flex-[2]">
+                  <p className="truncate font-heading text-xl leading-tight text-ink sm:text-2xl">
                     {t.name}
                   </p>
                   <p className="mt-1 font-mono text-xs text-muted-foreground">
+                    <span className="uppercase text-foreground/60 sm:hidden">
+                      {t.kind} ·{' '}
+                    </span>
                     {t.meta}
                   </p>
                 </div>
 
-                <div className="flex min-w-0 flex-[2] flex-col gap-2">
-                  <span className="inline-flex w-fit items-center gap-2 rounded-full bg-muted/70 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-ink">
+                <div className="flex min-w-0 flex-col items-end gap-1.5 sm:flex-[2] sm:items-start sm:gap-2">
+                  <span className="inline-flex w-fit items-center gap-2 rounded-full bg-muted/70 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-ink sm:px-3 sm:text-[11px]">
                     {t.live && <span className="text-forest">●</span>}
                     {t.statusLabel}
                   </span>
-                  <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  <span className="text-right font-mono text-[11px] uppercase tracking-wider text-muted-foreground sm:text-left sm:text-xs">
                     {t.dates}
                   </span>
                 </div>
@@ -118,7 +121,7 @@ export function Competitions({
                   </span>
                 </div>
 
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="hidden h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 sm:block" />
               </Link>
             ))}
           </div>

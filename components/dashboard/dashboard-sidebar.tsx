@@ -1,7 +1,14 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { ChevronsUpDown, ExternalLink, LogOut, Plus, X } from 'lucide-react'
+import {
+  ChevronsUpDown,
+  ExternalLink,
+  LogOut,
+  MonitorPlay,
+  Plus,
+  X,
+} from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
@@ -113,15 +120,27 @@ export function DashboardSidebar() {
         ) : null}
 
         {club && (
-          <Link
-            href={`/clubs/${club.slug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 flex items-center justify-center gap-2 rounded-md border border-cream/10 bg-transparent px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-cream/60 transition-colors hover:bg-cream/5 hover:text-cream"
-          >
-            Ver perfil público
-            <ExternalLink className="size-3.5 shrink-0" strokeWidth={1.5} />
-          </Link>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Link
+              href={`/clubs/${club.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-md border border-cream/10 bg-transparent px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-cream/60 transition-colors hover:bg-cream/5 hover:text-cream"
+            >
+              Público
+              <ExternalLink className="size-3.5 shrink-0" strokeWidth={1.5} />
+            </Link>
+            <Link
+              href={`/pantalla/${club.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Modo pantalla: partidos de hoy para mostrar en las pantallas del club"
+              className="flex items-center justify-center gap-2 rounded-md border border-cream/10 bg-transparent px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-cream/60 transition-colors hover:bg-cream/5 hover:text-cream"
+            >
+              Pantalla
+              <MonitorPlay className="size-3.5 shrink-0" strokeWidth={1.5} />
+            </Link>
+          </div>
         )}
 
         {!club && (

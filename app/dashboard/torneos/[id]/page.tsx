@@ -13,7 +13,7 @@ import {
   tournamentStatusLabels,
   tournamentStatusStyles,
 } from '@/lib/tournaments'
-import { ArrowLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ExternalLink, MonitorPlay } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -149,6 +149,22 @@ export default async function TorneoDetailPage({
             </Link>
           </Button>
         )}
+
+        {/* Modo pantalla: partidos de hoy del club para mostrar en las pantallas. */}
+        <Button
+          asChild
+          className="h-9 gap-1.5 rounded-md px-4 text-sm"
+        >
+          <Link
+            href={`/pantalla/${club.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Partidos de hoy para mostrar en las pantallas del club"
+          >
+            <MonitorPlay className="size-4" strokeWidth={2} />
+            Pantalla
+          </Link>
+        </Button>
       </DashboardTopbar>
 
       <div className="mx-auto max-w-[1600px] px-8 py-10">

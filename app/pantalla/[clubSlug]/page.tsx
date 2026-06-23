@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
+import { notFound, redirect } from 'next/navigation'
 
+import { auth } from '@/auth'
+import { PantallaBoard } from '@/components/pantalla/pantalla-board'
 import { PantallaLive } from '@/components/pantalla/pantalla-live'
 import { prisma } from '@/lib/prisma'
 import { DEFAULT_MATCH_MINUTES, leagueStaggerSlot } from '@/lib/league-rules'
@@ -133,17 +136,37 @@ export default async function PantallaPage({
   const club = await getClub(clubSlug)
   if (!club) notFound()
 
+  // Acceso restringido: la pantalla es privada del club. Solo entran los miembros
+  // del club (cualquier rol: owner/admin/staff/viewer) y el super_admin de la
+  // plataforma. Sin sesión → login; con sesión pero ajeno al club → 404 (no se
+  // revela que la pantalla existe a quien no pertenece al club).
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) redirect('/login')
+  if (session.user.accountType !== 'super_admin') {
+    const membership = await prisma.clubMembership.findUnique({
+      where: {
+        clubId_userId: { clubId: club.id, userId: session.user.id },
+      },
+      select: { role: true },
+    })
+    if (!membership) notFound()
+  }
+
   const now = new Date()
   const todayKey = clubDateKey(now)
   const { start, end } = clubDayRange(todayKey)
 
-  // Partidos de hoy del club que están en juego o programados (con hora). Los
-  // resultados ya finalizados o cancelados no interesan en la pantalla.
+  // Partidos del club a mostrar: los que están EN JUEGO (estén o no con hora, para
+  // que siempre se vean mientras se disputan) y los PROGRAMADOS de hoy. Los ya
+  // finalizados o cancelados no interesan en la pantalla.
   const matches = await prisma.match.findMany({
     where: {
       clubId: club.id,
-      scheduledAt: { gte: start, lt: end },
       status: { in: ['in_progress', 'scheduled'] },
+      OR: [
+        { status: 'in_progress' },
+        { scheduledAt: { gte: start, lt: end } },
+      ],
     },
     include: matchInclude,
   })
@@ -155,12 +178,18 @@ export default async function PantallaPage({
       ? leagueStaggerSlot(m.league?.playKind, m.intraGroupOrder)
       : 0
     const durMin = m.durationMinutes ?? DEFAULT_MATCH_MINUTES
-    const startMs = (m.scheduledAt as Date).getTime() + slot * durMin * 60_000
+    // Un partido en juego puede no tener hora registrada; en ese caso se etiqueta
+    // como «Ahora» y se ordena al final de los que sí la tienen.
+    const startMs = m.scheduledAt
+      ? m.scheduledAt.getTime() + slot * durMin * 60_000
+      : null
+    const live = m.status === 'in_progress'
     return {
       id: m.id,
-      live: m.status === 'in_progress',
+      live,
       startMs,
-      timeLabel: clubTimeLabel(new Date(startMs)),
+      timeLabel:
+        startMs != null ? clubTimeLabel(new Date(startMs)) : live ? 'Ahora' : '—',
       court: m.court?.name ?? null,
       sideA: sideLabel(m.sides[0]),
       sideB: sideLabel(m.sides[1]),
@@ -168,19 +197,17 @@ export default async function PantallaPage({
     }
   })
 
-  const live = rows
-    .filter((r) => r.live)
-    .sort((a, b) => a.startMs - b.startMs)
-  const upcoming = rows
-    .filter((r) => !r.live)
-    .sort((a, b) => a.startMs - b.startMs)
+  const byStart = (a: { startMs: number | null }, b: { startMs: number | null }) =>
+    (a.startMs ?? Number.POSITIVE_INFINITY) - (b.startMs ?? Number.POSITIVE_INFINITY)
+  const live = rows.filter((r) => r.live).sort(byStart)
+  const upcoming = rows.filter((r) => !r.live).sort(byStart)
 
   const dateLabel = formatInClubTz(now, "EEEE d 'de' LLLL")
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink text-cream">
+    <div className="flex h-screen flex-col overflow-hidden bg-ink text-cream">
       {/* ---- Cabecera ---- */}
-      <header className="flex items-center justify-between gap-6 border-b border-cream/10 px-8 py-6 lg:px-12">
+      <header className="flex shrink-0 items-center justify-between gap-6 border-b border-cream/10 px-8 py-5 lg:px-12">
         <div className="min-w-0">
           <p className="font-mono text-xs uppercase tracking-[0.3em] text-cream/45">
             {club.city ? `${club.city} · ` : ''}Partidos de hoy
@@ -200,149 +227,16 @@ export default async function PantallaPage({
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col gap-10 px-8 py-8 lg:px-12 lg:py-10">
-        {rows.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <p className="font-mono text-sm uppercase tracking-[0.3em] text-cream/40">
-              Sin partidos
-            </p>
-            <p className="mt-4 font-serif text-4xl tracking-tight text-cream/70">
-              No hay partidos programados para hoy.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* ---- En juego ---- */}
-            {live.length > 0 && (
-              <section>
-                <SectionTitle
-                  dot="bg-lime"
-                  label="En juego"
-                  count={live.length}
-                />
-                <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  {live.map((r) => (
-                    <MatchCard key={r.id} row={r} live />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* ---- Próximos ---- */}
-            {upcoming.length > 0 && (
-              <section>
-                <SectionTitle
-                  dot="bg-ochre"
-                  label="A continuación"
-                  count={upcoming.length}
-                />
-                <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  {upcoming.map((r) => (
-                    <MatchCard key={r.id} row={r} />
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
-        )}
+      {/* El tablero ocupa el alto restante y rota los próximos sin scroll. */}
+      <main className="min-h-0 flex-1 overflow-hidden px-8 py-6 lg:px-12 lg:py-8">
+        <PantallaBoard live={live} upcoming={upcoming} />
       </main>
 
       {/* ---- Pie ---- */}
-      <footer className="flex items-center justify-between border-t border-cream/10 px-8 py-4 font-mono text-[11px] uppercase tracking-[0.25em] text-cream/35 lg:px-12">
+      <footer className="flex shrink-0 items-center justify-between border-t border-cream/10 px-8 py-3 font-mono text-[11px] uppercase tracking-[0.25em] text-cream/35 lg:px-12">
         <span>bandeja</span>
         <span>Se actualiza solo</span>
       </footer>
-    </div>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Subcomponentes                                                             */
-/* -------------------------------------------------------------------------- */
-
-function SectionTitle({
-  dot,
-  label,
-  count,
-}: {
-  dot: string
-  label: string
-  count: number
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className={`size-2.5 rounded-full ${dot}`} />
-      <h2 className="font-mono text-sm uppercase tracking-[0.3em] text-cream/80">
-        {label}
-      </h2>
-      <span className="font-mono text-sm tabular-nums text-cream/35">
-        {String(count).padStart(2, '0')}
-      </span>
-      <span className="ml-1 h-px flex-1 bg-cream/10" />
-    </div>
-  )
-}
-
-type Row = {
-  id: string
-  live: boolean
-  timeLabel: string
-  court: string | null
-  sideA: string
-  sideB: string
-  competition: string
-}
-
-function MatchCard({ row, live = false }: { row: Row; live?: boolean }) {
-  return (
-    <div
-      className={
-        live
-          ? 'flex items-stretch gap-5 rounded-2xl border border-lime/30 bg-forest/40 p-5 lg:p-6'
-          : 'flex items-stretch gap-5 rounded-2xl border border-cream/10 bg-cream/[0.03] p-5 lg:p-6'
-      }
-    >
-      {/* Hora + cancha */}
-      <div className="flex w-32 shrink-0 flex-col justify-center border-r border-cream/10 pr-5">
-        <span className="font-mono text-3xl leading-none tabular-nums lg:text-4xl">
-          {row.timeLabel}
-        </span>
-        <span
-          className={
-            live
-              ? 'mt-2 font-mono text-[11px] uppercase tracking-widest text-lime'
-              : 'mt-2 font-mono text-[11px] uppercase tracking-widest text-cream/45'
-          }
-        >
-          {live ? 'En juego' : 'Próximo'}
-        </span>
-      </div>
-
-      {/* Enfrentamiento + competición */}
-      <div className="flex min-w-0 flex-1 flex-col justify-center">
-        <p className="truncate font-serif text-3xl leading-tight tracking-tight lg:text-4xl">
-          {row.sideA}
-        </p>
-        <p className="my-1 font-mono text-xs uppercase tracking-[0.3em] text-cream/35">
-          vs
-        </p>
-        <p className="truncate font-serif text-3xl leading-tight tracking-tight lg:text-4xl">
-          {row.sideB}
-        </p>
-        <p className="mt-3 truncate font-mono text-xs uppercase tracking-widest text-cream/45">
-          {row.competition}
-        </p>
-      </div>
-
-      {/* Cancha */}
-      <div className="flex w-28 shrink-0 flex-col items-end justify-center border-l border-cream/10 pl-5 text-right">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-cream/40">
-          Cancha
-        </span>
-        <span className="mt-1 font-serif text-2xl leading-tight tracking-tight lg:text-3xl">
-          {row.court ?? '—'}
-        </span>
-      </div>
     </div>
   )
 }

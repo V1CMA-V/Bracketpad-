@@ -679,6 +679,7 @@ async function findOwnedMatch(matchId: string) {
       id: true,
       clubId: true,
       categoryId: true,
+      status: true,
       bracketRound: true,
       bracketSlot: true,
       winnerSide: true,
@@ -897,6 +898,37 @@ export async function clearMatchResult(matchId: string): Promise<GroupState> {
       })
     }
   })
+
+  revalidateCategory(match.category.tournamentId, match.categoryId)
+  return { success: true }
+}
+
+/**
+ * Marca un partido de torneo como «en juego» (in_progress) o «programado»
+ * (scheduled). Es el interruptor operativo que el staff usa cuando el partido
+ * sale o vuelve a la cancha; alimenta la sección «En juego» de la pantalla del
+ * club. No se permite sobre un partido finalizado: primero hay que borrar su
+ * resultado (que lo devuelve a «programado»).
+ */
+export async function setMatchLiveStatus(
+  matchId: string,
+  status: 'scheduled' | 'in_progress',
+): Promise<GroupState> {
+  if (status !== 'scheduled' && status !== 'in_progress') {
+    return { error: 'Estado no válido.' }
+  }
+  const match = await findOwnedMatch(matchId)
+  if (!match) return { error: 'Partido no encontrado.' }
+  if (!match.category || !match.categoryId) {
+    return { error: 'El partido no pertenece a una categoría.' }
+  }
+  if (match.status === 'finished') {
+    return {
+      error: 'El partido ya tiene resultado; bórralo para cambiar su estado.',
+    }
+  }
+
+  await prisma.match.update({ where: { id: matchId }, data: { status } })
 
   revalidateCategory(match.category.tournamentId, match.categoryId)
   return { success: true }

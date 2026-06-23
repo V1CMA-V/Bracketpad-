@@ -66,6 +66,26 @@
   }
 }
 
+/* Modo pantalla — carrusel vertical: la franja de «a continuación» se desplaza
+   sola y en bucle continuo a velocidad constante para que un jugador lea sin
+   esfuerzo. El componente mide y fija `--pantalla-shift` (alto de una copia + el
+   hueco) y la duración (distancia ÷ velocidad), de modo que el bucle es perfecto
+   y la velocidad no depende de cuántos partidos haya. */
+@keyframes pantalla-marquee {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(calc(var(--pantalla-shift, 0px) * -1));
+  }
+}
+.pantalla-marquee {
+  animation-name: pantalla-marquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
 :root {
   /* Bandeja palette */
   --cream: #f1ebde;

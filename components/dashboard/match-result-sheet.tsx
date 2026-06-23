@@ -17,6 +17,7 @@ import {
 import {
   clearMatchResult,
   saveMatchResult,
+  setMatchLiveStatus,
   setMatchSchedule,
 } from '@/app/dashboard/torneos/[id]/categorias/[catId]/actions'
 import type { SetScore } from '@/lib/match-results'
@@ -112,6 +113,7 @@ export function MatchResultSheet({
   const [time, setTime] = useState(match.time)
   const [courtId, setCourtId] = useState(match.courtId ?? '')
   const [tentative, setTentative] = useState(match.timeTbd)
+  const [liveStatus, setLiveStatus] = useState(match.status)
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -126,9 +128,26 @@ export function MatchResultSheet({
       setTime(match.time)
       setCourtId(match.courtId ?? '')
       setTentative(match.timeTbd)
+      setLiveStatus(match.status)
       setError(null)
     }
     onOpenChange(o)
+  }
+
+  // Alterna entre «programado» y «en juego». Es un cambio inmediato (la hoja no se
+  // cierra); el estado local se actualiza al momento para reflejarlo sin esperar.
+  const changeLiveStatus = (next: 'scheduled' | 'in_progress') => {
+    if (next === liveStatus) return
+    setError(null)
+    const previous = liveStatus
+    setLiveStatus(next)
+    startTransition(async () => {
+      const res = await setMatchLiveStatus(match.id, next)
+      if (res?.error) {
+        setLiveStatus(previous)
+        setError(res.error)
+      }
+    })
   }
 
   const saveSchedule = () => {
@@ -209,6 +228,71 @@ export function MatchResultSheet({
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Estado: programado / en juego (en vivo). Al finalizar se deriva del
+              resultado, así que se muestra en solo lectura. */}
+          <div className="mt-5">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Estado
+            </p>
+            {finished ? (
+              <div className="mt-2 flex items-center gap-2 rounded-md border border-forest/30 bg-forest/5 px-3 py-2 text-sm text-forest">
+                <Check className="size-4 shrink-0" strokeWidth={2.5} />
+                <span>Finalizado</span>
+                <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Borra el resultado para cambiarlo
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: 'scheduled', label: 'Próximo' },
+                      { value: 'in_progress', label: 'En juego' },
+                    ] as const
+                  ).map((opt) => {
+                    const active = liveStatus === opt.value
+                    const live = opt.value === 'in_progress'
+                    // «En juego» exige tener definidas las dos parejas.
+                    const blocked = live && !ready
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => changeLiveStatus(opt.value)}
+                        disabled={pending || blocked}
+                        aria-pressed={active}
+                        className={cn(
+                          'flex h-9 items-center justify-center gap-2 rounded-md border text-sm transition-colors disabled:opacity-50',
+                          active
+                            ? live
+                              ? 'border-forest bg-forest text-cream'
+                              : 'border-foreground bg-foreground text-background'
+                            : 'border-border bg-input/30 text-muted-foreground hover:bg-muted/50',
+                        )}
+                      >
+                        {live && (
+                          <span
+                            className={cn(
+                              'size-1.5 rounded-full',
+                              active ? 'bg-lime' : 'bg-forest',
+                            )}
+                          />
+                        )}
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                {!ready && (
+                  <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                    Define las dos parejas para marcar «en juego»
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
           {/* Programación: fecha, hora y cancha */}

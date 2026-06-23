@@ -7,9 +7,11 @@ import { ChevronRight, Phone, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatMoney } from '@/lib/money'
 import {
+  paymentMethodLabels,
   paymentStatusLabels,
   RESERVATION_PAYMENT_STATUSES,
   reservationKindLabels,
+  type PaymentMethod,
   type ReservationKind,
   type ReservationPaymentStatus,
 } from '@/lib/reservations'
@@ -29,6 +31,7 @@ export type ReservationListItem = {
   timeLabel: string // "18:00"
   durationLabel: string
   paymentStatus: ReservationPaymentStatus
+  paymentMethod: PaymentMethod | null
   price: number | null
   amountPaid: number
   currency: string
@@ -122,6 +125,11 @@ function ReservationRow({ row }: { row: ReservationListItem }) {
                 · saldo {formatMoney(balance, row.currency)}
               </span>
             )}
+          </p>
+        )}
+        {!row.cancelled && row.paymentMethod && (
+          <p className="mt-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+            {paymentMethodLabels[row.paymentMethod]}
           </p>
         )}
       </div>

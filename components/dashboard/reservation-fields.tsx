@@ -5,11 +5,15 @@ import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { currencyOptions } from '@/lib/money'
 import {
+  DEFAULT_PAYMENT_METHOD,
   DEFAULT_RESERVATION_MINUTES,
   DURATION_OPTIONS,
+  PAYMENT_METHODS,
+  paymentMethodLabels,
   paymentStatusLabels,
   RESERVATION_PAYMENT_STATUSES,
   reservationTimeSlots,
+  type PaymentMethod,
   type ReservationKind,
   type ReservationPaymentStatus,
   type WeekHours,
@@ -27,6 +31,7 @@ export type ReservationFieldErrors = Partial<
     | 'time'
     | 'durationMinutes'
     | 'paymentStatus'
+    | 'paymentMethod'
     | 'price'
     | 'amountPaid'
     | 'currency'
@@ -46,6 +51,7 @@ export type ReservationDefaults = {
   time?: string
   durationMinutes?: number
   paymentStatus?: ReservationPaymentStatus
+  paymentMethod?: PaymentMethod | null
   price?: number | null
   amountPaid?: number | null
   currency?: string
@@ -132,6 +138,11 @@ export function ReservationFields({
   )
   const [currency, setCurrency] = useState<string>(
     defaults.currency ?? 'MXN',
+  )
+  // Forma de cobro. Se conserva aunque el campo se oculte (estado «pendiente»),
+  // para no perder la elección al alternar el estado de cobro.
+  const [method, setMethod] = useState<PaymentMethod>(
+    defaults.paymentMethod ?? DEFAULT_PAYMENT_METHOD,
   )
 
   // Aplica el precio sugerido del tarifario para `count` jugadores (si existe).
@@ -425,6 +436,32 @@ export function ReservationFields({
             </select>
           </div>
         </div>
+
+        {/* Método de cobro: solo cuando hay un importe abonado (no «pendiente»). */}
+        {payment !== 'pending' && (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="paymentMethod" className={labelCls}>
+                Método
+              </label>
+              <select
+                id="paymentMethod"
+                name="paymentMethod"
+                value={method}
+                onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+                className={cn('mt-2', fieldCls)}
+                aria-invalid={!!errors?.paymentMethod}
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {paymentMethodLabels[m]}
+                  </option>
+                ))}
+              </select>
+              <FieldErr messages={errors?.paymentMethod} />
+            </div>
+          </div>
+        )}
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>

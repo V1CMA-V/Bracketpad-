@@ -8,6 +8,10 @@ import { getManagedClub } from '@/lib/club'
 import { DEFAULT_MATCH_MINUTES, leagueStaggerSlot } from '@/lib/league-rules'
 import { createReservationSchema } from '@/lib/validations/reservation'
 import {
+  DEFAULT_PAYMENT_METHOD,
+  type PaymentMethod,
+} from '@/lib/reservations'
+import {
   clubDateAndTimeToUtc,
   clubDateKey,
   clubDayRange,
@@ -154,6 +158,7 @@ export type ReservationFormState = {
       | 'time'
       | 'durationMinutes'
       | 'paymentStatus'
+      | 'paymentMethod'
       | 'price'
       | 'amountPaid'
       | 'currency'
@@ -177,6 +182,19 @@ function resolveAmountPaid(
   if (status === 'pending') return 0
   if (status === 'paid') return price ?? amountPaid ?? 0
   return amountPaid ?? 0
+}
+
+/**
+ * Método de cobro a persistir: solo aplica cuando hay un importe abonado (pagado
+ * o abono parcial). En «pendiente» no se ha cobrado nada, así que se guarda null;
+ * en otro caso, lo elegido (o el método por defecto si no llegó valor).
+ */
+function resolvePaymentMethod(
+  status: 'paid' | 'pending' | 'partial',
+  method: PaymentMethod | undefined,
+): PaymentMethod | null {
+  if (status === 'pending') return null
+  return method ?? DEFAULT_PAYMENT_METHOD
 }
 
 /**
@@ -231,6 +249,7 @@ function parseReservationForm(formData: FormData) {
     time: formData.get('time'),
     durationMinutes: formData.get('durationMinutes'),
     paymentStatus: formData.get('paymentStatus'),
+    paymentMethod: opt('paymentMethod'),
     price: opt('price'),
     amountPaid: opt('amountPaid'),
     currency: formData.get('currency'),
@@ -287,6 +306,7 @@ export async function createReservation(
       startAt,
       durationMinutes: d.durationMinutes,
       paymentStatus: d.paymentStatus,
+      paymentMethod: resolvePaymentMethod(d.paymentStatus, d.paymentMethod),
       price: d.price,
       amountPaid: resolveAmountPaid(d.paymentStatus, d.price, d.amountPaid),
       currency: d.currency,
@@ -361,6 +381,7 @@ export async function updateReservation(
       startAt,
       durationMinutes: d.durationMinutes,
       paymentStatus: d.paymentStatus,
+      paymentMethod: resolvePaymentMethod(d.paymentStatus, d.paymentMethod),
       price: d.price ?? null,
       amountPaid: resolveAmountPaid(d.paymentStatus, d.price, d.amountPaid),
       currency: d.currency,
@@ -378,7 +399,7 @@ export async function markReservationPaid(reservationId: string) {
   if (!club) return
   const reservation = await prisma.courtReservation.findFirst({
     where: { id: reservationId, clubId: club.id },
-    select: { price: true, amountPaid: true },
+    select: { price: true, amountPaid: true, paymentMethod: true },
   })
   if (!reservation) return
   await prisma.courtReservation.update({
@@ -387,6 +408,8 @@ export async function markReservationPaid(reservationId: string) {
       paymentStatus: 'paid',
       // Si hay precio, se salda completo; si no, se conserva lo abonado.
       amountPaid: reservation.price ?? reservation.amountPaid,
+      // Al cobrar se conserva el método previo; si no había, efectivo por defecto.
+      paymentMethod: reservation.paymentMethod ?? DEFAULT_PAYMENT_METHOD,
     },
   })
   revalidateSchedules()

@@ -71,6 +71,7 @@ export default async function ReservasPage() {
     timeLabel: clubTimeLabel(r.startAt),
     durationLabel: formatDuration(r.durationMinutes),
     paymentStatus: r.paymentStatus as ReservationPaymentStatus,
+    paymentMethod: r.paymentMethod,
     price: r.price ? Number(r.price) : null,
     amountPaid: Number(r.amountPaid),
     currency: r.currency,

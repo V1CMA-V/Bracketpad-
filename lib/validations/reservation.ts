@@ -1,7 +1,10 @@
 import { z } from 'zod'
 
 import { currencyOptions } from '@/lib/money'
-import { RESERVATION_PAYMENT_STATUSES } from '@/lib/reservations'
+import {
+  PAYMENT_METHODS,
+  RESERVATION_PAYMENT_STATUSES,
+} from '@/lib/reservations'
 
 const HHMM = /^\d{2}:\d{2}$/
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -46,6 +49,12 @@ export const createReservationSchema = z
       .min(15, 'Duración mínima 15 min.')
       .max(600, 'Duración demasiado larga.'),
     paymentStatus: z.enum(RESERVATION_PAYMENT_STATUSES),
+    // Forma de cobro. Solo aplica cuando hay un importe abonado (pagado o abono
+    // parcial); el action lo descarta cuando el estado es «pendiente».
+    paymentMethod: z
+      .union([z.literal(''), z.enum(PAYMENT_METHODS)])
+      .transform((v) => (v === '' ? undefined : v))
+      .optional(),
     price: moneyField,
     amountPaid: moneyField,
     currency: z.enum(currencyOptions).default('MXN'),

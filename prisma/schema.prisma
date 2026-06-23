@@ -264,7 +264,10 @@ model CourtReservation {
   playerCount Int?            @db.SmallInt
   // Cobro: precio total acordado y lo abonado hasta ahora. `paymentStatus`
   // distingue pagado / pendiente / abono parcial; el saldo = price − amountPaid.
+  // `paymentMethod` registra cómo se cobró (efectivo o tarjeta); null mientras
+  // está pendiente (aún no se ha cobrado nada).
   paymentStatus ReservationPaymentStatus @default(pending)
+  paymentMethod PaymentMethod?
   price         Decimal?                 @db.Decimal(10, 2)
   amountPaid    Decimal                  @default(0) @db.Decimal(10, 2)
   currency      String                   @default("MXN")
@@ -295,6 +298,12 @@ enum ReservationPaymentStatus {
   paid // pagado por completo
   pending // sin abonar nada todavía
   partial // abono parcial (queda saldo)
+}
+
+// Forma de cobro de una reserva (cuando hay algún importe abonado).
+enum PaymentMethod {
+  cash // efectivo
+  card // tarjeta
 }
 
 enum CourtSurface {

@@ -11,6 +11,7 @@ import {
   formatDuration,
   paymentStatusLabels,
   type ReservationPaymentStatus,
+  type WeekHours,
 } from '@/lib/reservations'
 import {
   clubDateKey,
@@ -384,7 +385,9 @@ export default async function DashboardResumenPage() {
     dayMatches,
     dayReservations,
     liveMatch,
-    dayHours,
+    coaches,
+    classPricing,
+    allHours,
   ] = await Promise.all([
     prisma.league.findMany({
       where: { clubId: club.id, status: { not: 'archived' } },
@@ -457,13 +460,42 @@ export default async function DashboardResumenPage() {
         sets: { orderBy: { setNumber: 'asc' } },
       },
     }),
-    prisma.clubHours.findUnique({
-      where: {
-        clubId_dayOfWeek: { clubId: club.id, dayOfWeek: clubWeekday(now) },
-      },
-      select: { openTime: true, closeTime: true },
+    // Coaches activos del club (para reservar clases desde el formulario).
+    prisma.coach.findMany({
+      where: { clubId: club.id, isActive: true },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true },
+    }),
+    // Tarifario de clases (prerellena el precio al reservar una clase).
+    prisma.clubClassPricing.findUnique({ where: { clubId: club.id } }),
+    // Horario del club por día de la semana: el día de hoy alimenta la ventana de
+    // la rejilla y la semana completa restringe la hora en el formulario.
+    prisma.clubHours.findMany({
+      where: { clubId: club.id },
+      select: { dayOfWeek: true, openTime: true, closeTime: true },
     }),
   ])
+
+  // Horario indexado por día (0=domingo); null = cerrado ese día.
+  const weekHours: WeekHours = Array.from({ length: 7 }, () => null)
+  for (const h of allHours) {
+    weekHours[h.dayOfWeek] = { openTime: h.openTime, closeTime: h.closeTime }
+  }
+  const dayHours = weekHours[clubWeekday(now)]
+
+  // Coaches y tarifario de clases para el formulario de reserva.
+  const coachOptions = coaches.map((c) => ({ id: c.id, name: c.fullName }))
+  const classPrices = {
+    currency: classPricing?.currency ?? 'MXN',
+    // byCount[n] = precio para n jugadores (índice 0 sin usar).
+    byCount: [
+      null,
+      classPricing?.price1 ? Number(classPricing.price1) : null,
+      classPricing?.price2 ? Number(classPricing.price2) : null,
+      classPricing?.price3 ? Number(classPricing.price3) : null,
+      classPricing?.price4 ? Number(classPricing.price4) : null,
+    ],
+  }
 
   /* ---- Lista unificada de eventos (ligas + torneos) ---- */
   const leagueItems: EventItem[] = leagues.flatMap((l) => {
@@ -1097,7 +1129,13 @@ export default async function DashboardResumenPage() {
                   </span>
                 ))}
               </div>
-              <NewReservationButton courts={courts} defaultDate={todayKey} />
+              <NewReservationButton
+                courts={courts}
+                coaches={coachOptions}
+                classPrices={classPrices}
+                weekHours={weekHours}
+                defaultDate={todayKey}
+              />
             </div>
           </div>
 

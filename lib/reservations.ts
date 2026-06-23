@@ -14,6 +14,18 @@ export const paymentStatusLabels: Record<ReservationPaymentStatus, string> = {
   partial: 'Abono parcial',
 }
 
+/** Forma de cobro de una reserva (cuando hay algún importe abonado). */
+export const PAYMENT_METHODS = ['cash', 'card'] as const
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
+
+export const paymentMethodLabels: Record<PaymentMethod, string> = {
+  cash: 'Efectivo',
+  card: 'Tarjeta',
+}
+
+/** Método de cobro por defecto al registrar un pago. */
+export const DEFAULT_PAYMENT_METHOD: PaymentMethod = 'cash'
+
 /** Estado de la reserva (vigente o cancelada). */
 export const RESERVATION_STATUSES = ['confirmed', 'cancelled'] as const
 export type ReservationStatus = (typeof RESERVATION_STATUSES)[number]

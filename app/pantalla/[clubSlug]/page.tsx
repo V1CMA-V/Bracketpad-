@@ -205,37 +205,52 @@ export default async function PantallaPage({
   const dateLabel = formatInClubTz(now, "EEEE d 'de' LLLL")
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-ink text-cream">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-ink text-cream">
+      {/* ---- Atmósfera de fondo: glow cálido + grano ---- */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-1/3 left-1/2 h-[85vh] w-[85vh] -translate-x-1/2 rounded-full bg-forest/15 blur-[150px]" />
+        <div className="absolute -bottom-1/4 -right-1/4 h-[55vh] w-[55vh] rounded-full bg-ochre/[0.07] blur-[130px]" />
+        <div className="pantalla-grain absolute inset-0 opacity-[0.05] mix-blend-soft-light" />
+      </div>
+
       {/* ---- Cabecera ---- */}
-      <header className="flex shrink-0 items-center justify-between gap-6 border-b border-cream/10 px-8 py-5 lg:px-12">
+      <header className="relative z-10 flex shrink-0 items-start justify-between gap-6 border-b border-cream/10 px-8 py-5 lg:px-12 lg:py-6">
         <div className="min-w-0">
-          <p className="font-mono text-xs uppercase tracking-[0.3em] text-cream/45">
+          <p className="font-mono text-xs uppercase tracking-[0.35em] text-cream/45">
             {club.city ? `${club.city} · ` : ''}Partidos de hoy
           </p>
-          <h1 className="mt-1 truncate font-serif text-4xl leading-none tracking-tight lg:text-5xl">
+          <h1 className="mt-1.5 flex items-baseline truncate font-serif text-4xl leading-none tracking-tight lg:text-5xl">
             {club.name}
+            <span className="ml-2 inline-block size-2 -translate-y-[3px] rounded-full bg-terracotta" />
           </h1>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="font-mono text-5xl leading-none tracking-tight lg:text-6xl">
+        <div className="flex shrink-0 flex-col items-end">
+          <p className="font-mono text-5xl leading-none tabular-nums tracking-tight lg:text-6xl">
             <PantallaLive timeZone={CLUB_TIME_ZONE} />
           </p>
-          <p className="mt-2 font-mono text-xs uppercase tracking-[0.3em] text-cream/45">
-            <span className="mr-2 inline-block size-2 animate-pulse rounded-full bg-lime align-middle" />
+          <p className="mt-2 flex items-center gap-2 font-mono text-xs uppercase tracking-[0.3em] text-cream/45">
+            <span className="inline-block size-2 animate-pulse rounded-full bg-lime" />
             <span className="first-letter:uppercase">{dateLabel}</span>
           </p>
         </div>
       </header>
 
-      {/* El tablero ocupa el alto restante y rota los próximos sin scroll. */}
-      <main className="min-h-0 flex-1 overflow-hidden px-8 py-6 lg:px-12 lg:py-8">
+      {/* El tablero ocupa el alto restante: «en juego» rota y «a continuación» se
+          desplaza, todo sin scroll manual. */}
+      <main className="relative z-10 min-h-0 flex-1 overflow-hidden px-8 py-6 lg:px-12 lg:py-8">
         <PantallaBoard live={live} upcoming={upcoming} />
       </main>
 
       {/* ---- Pie ---- */}
-      <footer className="flex shrink-0 items-center justify-between border-t border-cream/10 px-8 py-3 font-mono text-[11px] uppercase tracking-[0.25em] text-cream/35 lg:px-12">
-        <span>bandeja</span>
-        <span>Se actualiza solo</span>
+      <footer className="relative z-10 flex shrink-0 items-center justify-between border-t border-cream/10 px-8 py-3 font-mono text-[11px] uppercase tracking-[0.25em] text-cream/35 lg:px-12">
+        <span className="flex items-center gap-1.5">
+          bandeja
+          <span className="size-1 rounded-full bg-terracotta" />
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="size-1.5 animate-pulse rounded-full bg-lime" />
+          En vivo · se actualiza solo
+        </span>
       </footer>
     </div>
   )

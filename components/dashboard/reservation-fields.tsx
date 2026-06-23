@@ -437,31 +437,41 @@ export function ReservationFields({
           </div>
         </div>
 
-        {/* Método de cobro: solo cuando hay un importe abonado (no «pendiente»). */}
-        {payment !== 'pending' && (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="paymentMethod" className={labelCls}>
-                Método
-              </label>
-              <select
-                id="paymentMethod"
-                name="paymentMethod"
-                value={method}
-                onChange={(e) => setMethod(e.target.value as PaymentMethod)}
-                className={cn('mt-2', fieldCls)}
-                aria-invalid={!!errors?.paymentMethod}
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {paymentMethodLabels[m]}
-                  </option>
-                ))}
-              </select>
+        {/* Método de cobro: siempre visible. En «pendiente» queda inactivo porque
+            aún no se ha cobrado nada (el método se registra al pagar). */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="paymentMethod" className={labelCls}>
+              Método
+            </label>
+            <select
+              id="paymentMethod"
+              name="paymentMethod"
+              value={method}
+              onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+              disabled={payment === 'pending'}
+              className={cn(
+                'mt-2',
+                fieldCls,
+                payment === 'pending' && 'opacity-50',
+              )}
+              aria-invalid={!!errors?.paymentMethod}
+            >
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {paymentMethodLabels[m]}
+                </option>
+              ))}
+            </select>
+            {payment === 'pending' ? (
+              <p className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                Se registra al cobrar
+              </p>
+            ) : (
               <FieldErr messages={errors?.paymentMethod} />
-            </div>
+            )}
           </div>
-        )}
+        </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
